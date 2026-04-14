@@ -1,0 +1,2204 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>加密货币K线图表与波段分析</title>
+    <!-- 引入外部资源 -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link href="https://cdn.jsdelivr.net/npm/font-awesome@4.7.0/css/font-awesome.min.css" rel="stylesheet">
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <!-- 引入ECharts库 -->
+    <script src="https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js"></script>
+    
+    <!-- Tailwind 配置 -->
+    <script>
+        tailwind.config = {
+            theme: {
+                extend: {
+                    colors: {
+                        primary: '#165DFF',
+                        secondary: '#0FC6C2',
+                        success: '#00B578',
+                        danger: '#F53F3F',
+                        dark: '#1D2129',
+                        'dark-light': '#272E3B',
+                        'support': '#00B578',
+                        'resistance': '#F53F3F',
+                    },
+                    fontFamily: {
+                        inter: ['Inter', 'system-ui', 'sans-serif'],
+                    },
+                }
+            }
+        }
+    </script>
+    
+    <!-- 自定义工具类和样式 -->
+    <style type="text/tailwindcss">
+        @layer utilities {
+            .content-auto {
+                content-visibility: auto;
+            }
+            .chart-container {
+                height: calc(100vh - 14rem);
+            }
+            .toggle-switch {
+                position: relative;
+                display: inline-block;
+                width: 40px;
+                height: 20px;
+            }
+            .toggle-switch input {
+                opacity: 0;
+                width: 0;
+                height: 0;
+            }
+            .toggle-slider {
+                position: absolute;
+                cursor: pointer;
+                top: 0;
+                left: 0;
+                right: 0;
+                bottom: 0;
+                background-color: #475569;
+                transition: .3s;
+                border-radius: 20px;
+            }
+            .toggle-slider:before {
+                position: absolute;
+                content: "";
+                height: 16px;
+                width: 16px;
+                left: 2px;
+                bottom: 2px;
+                background-color: white;
+                transition: .3s;
+                border-radius: 50%;
+            }
+            input:checked + .toggle-slider {
+                background-color: #165DFF;
+            }
+            input:checked + .toggle-slider:before {
+                transform: translateX(20px);
+            }
+        }
+    </style>
+    
+    <style>
+        body {
+            font-family: 'Inter', system-ui, sans-serif;
+            background-color: #0F172A;
+            color: #E2E8F0;
+        }
+        
+        /* 滚动条样式 */
+        ::-webkit-scrollbar {
+            width: 6px;
+            height: 6px;
+        }
+        
+        ::-webkit-scrollbar-track {
+            background: #1E293B;
+        }
+        
+        ::-webkit-scrollbar-thumb {
+            background: #475569;
+            border-radius: 3px;
+        }
+        
+        ::-webkit-scrollbar-thumb:hover {
+            background: #64748B;
+        }
+        
+        /* 动画效果 */
+        .fade-in {
+            animation: fadeIn 0.5s ease-in-out;
+        }
+        
+        @keyframes fadeIn {
+            from { opacity: 0; }
+            to { opacity: 1; }
+        }
+        
+        .pulse {
+            animation: pulse 2s infinite;
+        }
+        
+        @keyframes pulse {
+            0% { transform: scale(1); }
+            50% { transform: scale(1.05); }
+            100% { transform: scale(1); }
+        }
+
+        /* 错误详情样式 */
+        .error-details {
+            background-color: rgba(245, 63, 63, 0.1);
+            border-left: 3px solid #F53F3F;
+            padding: 10px;
+            margin: 10px 0;
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 12px;
+            text-align: left;
+        }
+
+        /* 重试倒计时样式 */
+        .retry-countdown {
+            display: inline-block;
+            background-color: rgba(22, 93, 255, 0.2);
+            color: #165DFF;
+            padding: 2px 8px;
+            border-radius: 10px;
+            font-size: 12px;
+            margin-left: 10px;
+        }
+
+        /* 缩放提示样式 */
+        .zoom-hint {
+            position: absolute;
+            bottom: 10px;
+            right: 10px;
+            background-color: rgba(29, 33, 41, 0.8);
+            padding: 3px 8px;
+            border-radius: 4px;
+            font-size: 12px;
+            color: #94A3B8;
+            z-index: 5;
+        }
+
+        /* 支撑阻力位标签样式 */
+        .level-label {
+            display: inline-block;
+            padding: 2px 6px;
+            border-radius: 3px;
+            font-size: 12px;
+            margin-right: 8px;
+            margin-bottom: 4px;
+        }
+
+        /* 图表容器保障样式 */
+        #chart-container {
+            min-height: 400px;
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* 图表加载失败的备用显示 */
+        .chart-fallback {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            background-color: rgba(29, 33, 41, 0.5);
+            z-index: 1;
+            padding: 20px;
+            text-align: center;
+        }
+    </style>
+</head>
+<body class="font-inter">
+    <!-- 顶部导航栏 -->
+    <header class="bg-dark-light border-b border-gray-700 sticky top-0 z-50 transition-all duration-300">
+        <div class="container mx-auto px-4 py-3 flex items-center justify-between">
+            <div class="flex items-center space-x-2">
+                <i class="fa fa-line-chart text-primary text-2xl"></i>
+                <h1 class="text-xl font-bold bg-gradient-to-r from-primary to-secondary bg-clip-text text-transparent">
+                    加密货币波段分析工具
+                </h1>
+            </div>
+            
+            <div class="flex items-center space-x-6">
+                <div class="hidden md:flex items-center space-x-1">
+                    <span class="text-success text-sm"><i class="fa fa-caret-up"></i> 上涨</span>
+                    <span class="text-danger text-sm ml-4"><i class="fa fa-caret-down"></i> 下跌</span>
+                </div>
+                
+                <div class="relative">
+                    <button id="theme-toggle" class="p-2 rounded-full hover:bg-gray-700 transition-colors">
+                        <i class="fa fa-moon-o"></i>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </header>
+    
+    <!-- 控制面板 -->
+    <div class="bg-dark-light border-b border-gray-700 py-3">
+        <div class="container mx-auto px-4">
+            <div class="flex flex-wrap items-center justify-between gap-4">
+                <div class="flex flex-wrap items-center gap-4">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-gray-400">币种:</span>
+                        <div class="relative">
+                            <select id="crypto-select" class="bg-gray-700 text-sm rounded px-3 py-1 appearance-none focus:outline-none focus:ring-1 focus:ring-primary">
+                                <option value="BTCUSDT">比特币 (BTC/USDT)</option>
+                                <option value="ETHUSDT">以太坊 (ETH/USDT)</option>
+                                <option value="BNBUSDT">币安币 (BNB/USDT)</option>
+                                <option value="SOLUSDT">索拉纳 (SOL/USDT)</option>
+                                <option value="ADAUSDT">卡尔达诺 (ADA/USDT)</option>
+                                <option value="XRPUSDT">瑞波币 (XRP/USDT)</option>
+                                <option value="DOGEUSDT">狗狗币 (DOGE/USDT)</option>
+                                <option value="DOTUSDT">波卡 (DOT/USDT)</option>
+                                <option value="LTCUSDT">莱特币 (LTC/USDT)</option>
+                                <option value="AVAXUSDT">Avalanche (AVAX/USDT)</option>
+                                <option value="MATICUSDT">Polygon (MATIC/USDT)</option>
+                                <option value="LINKUSDT">Chainlink (LINK/USDT)</option>
+                                <option value="UNIUSDT">Uniswap (UNI/USDT)</option>
+                                <option value="ATOMUSDT">Cosmos (ATOM/USDT)</option>
+                                <option value="ETCUSDT">以太坊经典 (ETC/USDT)</option>
+                                <option value="XLMUSDT">恒星币 (XLM/USDT)</option>
+                                <option value="VETUSDT">唯链 (VET/USDT)</option>
+                                <option value="FILUSDT">Filecoin (FIL/USDT)</option>
+                                <option value="TRXUSDT">波场 (TRX/USDT)</option>
+                                <option value="EGLDUSDT">Elrond (EGLD/USDT)</option>
+                                <option value="XTZUSDT">Tezos (XTZ/USDT)</option>
+                                <option value="ALGOUSDT">Algorand (ALGO/USDT)</option>
+                                <option value="NEARUSDT">NEAR Protocol (NEAR/USDT)</option>
+                                <option value="ICPUSDT">Internet Computer (ICP/USDT)</option>
+                                <option value="APTUSDT">Aptos (APT/USDT)</option>
+                                <option value="OPUSDT">Optimism (OP/USDT)</option>
+                                <option value="ARBUSDT">Arbitrum (ARB/USDT)</option>
+                                <option value="INJUSDT">Injective (INJ/USDT)</option>
+                                <option value="IMXUSDT">Immutable (IMX/USDT)</option>
+                                <option value="MANAUSDT">Decentraland (MANA/USDT)</option>
+                                <option value="SANDUSDT">The Sandbox (SAND/USDT)</option>
+                                <option value="AXSUSDT">Axie Infinity (AXS/USDT)</option>
+                                <option value="THETAUSDT">Theta Network (THETA/USDT)</option>
+                                <option value="FTMUSDT">Fantom (FTM/USDT)</option>
+                                <option value="HBARUSDT">Hedera (HBAR/USDT)</option>
+                                <option value="ONEUSDT">Harmony (ONE/USDT)</option>
+                                <option value="ICXUSDT">ICON (ICX/USDT)</option>
+                                <option value="QTUMUSDT">Qtum (QTUM/USDT)</option>
+                                <option value="ZECUSDT">Zcash (ZEC/USDT)</option>
+                                <option value="XMRUSDT">门罗币 (XMR/USDT)</option>
+                                <option value="DASHUSDT">达世币 (DASH/USDT)</option>
+                                <option value="CRVUSDT">Curve (CRV/USDT)</option>
+                                <option value="SUSHIUSDT">SushiSwap (SUSHI/USDT)</option>
+                                <option value="AAVEUSDT">Aave (AAVE/USDT)</option>
+                                <option value="MKRUSDT">Maker (MKR/USDT)</option>
+                                <option value="COMPUSDT">Compound (COMP/USDT)</option>
+                                <option value="YFIUSDT">Yearn.finance (YFI/USDT)</option>
+                                <option value="BATUSDT">Basic Attention Token (BATUSDT)</option>
+                                <option value="ENJUSDT">Enjin Coin (ENJ/USDT)</option>
+                                <option value="CHZUSDT">Chiliz (CHZ/USDT)</option>
+                                <option value="FLOWUSDT">Flow (FLOW/USDT)</option>
+                                <option value="KLAYUSDT">Klaytn (KLAY/USDT)</option>
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
+                                <i class="fa fa-chevron-down text-xs"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center space-x-2">
+                        <span class="text-gray-400">周期:</span>
+                        <div class="flex flex-wrap gap-2">
+                            <button class="timeframe-btn px-3 py-1 rounded text-sm bg-primary text-white" data-timeframe="60" data-binance-interval="1h">1小时</button>
+                            <button class="timeframe-btn px-3 py-1 rounded text-sm bg-gray-700 hover:bg-gray-600 transition-colors" data-timeframe="240" data-binance-interval="4h">4小时</button>
+                            <button class="timeframe-btn px-3 py-1 rounded text-sm bg-gray-700 hover:bg-gray-600 transition-colors" data-timeframe="D" data-binance-interval="1d">1天</button>
+                            <button class="timeframe-btn px-3 py-1 rounded text-sm bg-gray-700 hover:bg-gray-600 transition-colors" data-timeframe="W" data-binance-interval="1w">1周</button>
+                        </div>
+                    </div>
+
+                    <div class="flex items-center space-x-2">
+                        <span class="text-gray-400">技术指标:</span>
+                        <div class="flex flex-wrap gap-4">
+                            <!-- 支撑位开关 -->
+                            <div class="flex items-center space-x-2">
+                                <span class="text-support text-sm">支撑位</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="support-toggle" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            
+                            <!-- 阻力位开关 -->
+                            <div class="flex items-center space-x-2">
+                                <span class="text-resistance text-sm">阻力位</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="resistance-toggle" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                            
+                            <!-- 波段线开关 -->
+                            <div class="flex items-center space-x-2">
+                                <span class="text-primary text-sm">波段线</span>
+                                <label class="toggle-switch">
+                                    <input type="checkbox" id="wave-connection-toggle" checked>
+                                    <span class="toggle-slider"></span>
+                                </label>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+                
+                <div class="flex flex-wrap items-center gap-4">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-gray-400 text-sm">波段设置:</span>
+                        <div class="relative">
+                            <select id="wave-setting" class="bg-gray-700 text-sm rounded px-3 py-1 appearance-none focus:outline-none focus:ring-1 focus:ring-primary">
+                                <option value="4">最小间隔: 4根K线</option>
+                                <option value="6">最小间隔: 6根K线</option>
+                                <option value="8">最小间隔: 8根K线</option>
+                                <option value="10">最小间隔: 10根K线</option>
+                            </select>
+                            <div class="pointer-events-none absolute inset-y-0 right-0 flex items-center px-2 text-gray-400">
+                                <i class="fa fa-chevron-down text-xs"></i>
+                            </div>
+                        </div>
+                    </div>
+                    
+                    <button id="reset-zoom-btn" class="flex items-center space-x-1 px-3 py-1 rounded text-sm bg-gray-700 hover:bg-gray-600 transition-colors">
+                        <i class="fa fa-expand"></i>
+                        <span>重置视图</span>
+                    </button>
+                    
+                    <button id="refresh-btn" class="flex items-center space-x-1 px-3 py-1 rounded text-sm bg-gray-700 hover:bg-gray-600 transition-colors">
+                        <i class="fa fa-refresh"></i>
+                        <span>刷新数据</span>
+                    </button>
+                    
+                    <button id="filter-wave-btn" class="flex items-center space-x-1 px-3 py-1 rounded text-sm bg-primary hover:bg-primary/80 transition-colors">
+                        <i class="fa fa-filter"></i>
+                        <span>筛选低点抬高币种</span>
+                    </button>
+                    <button id="cancel-filter-btn" class="flex items-center space-x-1 px-3 py-1 rounded text-sm bg-gray-600 hover:bg-gray-500 transition-colors hidden">
+                        <i class="fa fa-stop"></i>
+                        <span>取消筛选</span>
+                    </button>
+                </div>
+            </div>
+        </div>
+    </div>
+    
+    <!-- 主内容区 -->
+    <main class="container mx-auto px-4 py-6">
+        <!-- 市场概览 -->
+        <div class="grid grid-cols-1 md:grid-cols-4 gap-4 mb-6">
+            <div class="bg-dark-light rounded-lg p-4 border border-gray-700 hover:border-primary/50 transition-all duration-300">
+                <div class="text-gray-400 text-sm mb-1" id="crypto-pair">BTC/USDT 价格</div>
+                <div class="flex items-baseline">
+                    <span id="crypto-price" class="text-2xl font-bold">--</span>
+                    <span id="price-change" class="ml-2 text-sm px-2 py-0.5 rounded"></span>
+                </div>
+            </div>
+            
+            <div class="bg-dark-light rounded-lg p-4 border border-gray-700 hover:border-primary/50 transition-all duration-300">
+                <div class="text-gray-400 text-sm mb-1">24小时变化</div>
+                <div class="flex items-baseline">
+                    <span id="24h-change" class="text-2xl font-bold">--</span>
+                    <span id="24h-change-percent" class="ml-2 text-sm px-2 py-0.5 rounded"></span>
+                </div>
+            </div>
+            
+            <div class="bg-dark-light rounded-lg p-4 border border-gray-700 hover:border-primary/50 transition-all duration-300">
+                <div class="text-gray-400 text-sm mb-1">24小时高/低</div>
+                <div class="flex flex-col">
+                    <span id="24h-high-low" class="text-xl font-bold">-- / --</span>
+                </div>
+            </div>
+            
+            <div class="bg-dark-light rounded-lg p-4 border border-gray-700 hover:border-primary/50 transition-all duration-300">
+                <div class="text-gray-400 text-sm mb-1">数据更新时间</div>
+                <div class="flex items-center">
+                    <span id="update-time" class="text-xl font-bold">--</span>
+                    <span id="connection-status" class="ml-2 text-xs px-2 py-0.5 rounded bg-gray-700">
+                        <i class="fa fa-circle"></i> 等待连接
+                    </span>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 支撑阻力位信息 -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4 mb-6">
+            <div class="bg-dark-light rounded-lg p-4 border border-gray-700">
+                <h3 class="text-lg font-semibold mb-3 flex items-center">
+                    <i class="fa fa-shield text-support mr-2"></i>主要支撑位
+                </h3>
+                <div id="support-levels" class="flex flex-wrap">
+                    <p class="text-gray-400 text-sm">加载数据后显示支撑位...</p>
+                </div>
+            </div>
+            
+            <div class="bg-dark-light rounded-lg p-4 border border-gray-700">
+                <h3 class="text-lg font-semibold mb-3 flex items-center">
+                    <i class="fa fa-ban text-resistance mr-2"></i>主要阻力位
+                </h3>
+                <div id="resistance-levels" class="flex flex-wrap">
+                    <p class="text-gray-400 text-sm">加载数据后显示阻力位...</p>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 图表容器 -->
+        <div class="bg-dark-light rounded-lg border border-gray-700 overflow-hidden relative">
+            <div id="chart-container" class="w-full chart-container">
+                <!-- 图表将在这里渲染 -->
+                <!-- 备用内容，当图表无法加载时显示 -->
+                <div id="chart-fallback" class="chart-fallback hidden">
+                    <i class="fa fa-area-chart text-primary text-4xl mb-3"></i>
+                    <h3 class="text-xl font-semibold mb-2">K线图表加载失败</h3>
+                    <p class="text-gray-400 mb-4">正在尝试重新加载图表数据...</p>
+                    <button id="fallback-retry-btn" class="px-4 py-2 bg-primary rounded hover:bg-primary/80 transition-colors">
+                        立即重试
+                    </button>
+                </div>
+            </div>
+            <div class="zoom-hint">
+                <i class="fa fa-mouse-pointer mr-1"></i> 鼠标滚轮缩放 | 拖动平移
+            </div>
+            
+            <!-- 加载状态 -->
+            <div id="loading-indicator" class="absolute inset-0 flex items-center justify-center bg-dark/70 z-10">
+                <div class="text-center">
+                    <div class="inline-block w-10 h-10 border-4 border-primary border-t-transparent rounded-full animate-spin mb-3"></div>
+                    <p class="text-gray-300">加载K线数据中...<span id="retry-countdown" class="retry-countdown hidden"></span></p>
+                </div>
+            </div>
+            
+            <!-- 错误提示 -->
+            <div id="error-message" class="absolute inset-0 flex items-center justify-center bg-dark/70 z-10 hidden">
+                <div class="text-center max-w-md px-4">
+                    <i class="fa fa-exclamation-triangle text-yellow-500 text-4xl mb-3"></i>
+                    <p class="text-gray-300 mb-2">无法加载数据</p>
+                    <div id="error-details-container" class="error-details hidden"></div>
+                    <p class="text-gray-400 text-sm mb-4">请检查网络连接或稍后重试</p>
+                    <div class="flex gap-2 justify-center">
+                        <button id="retry-btn" class="px-4 py-2 bg-primary rounded hover:bg-primary/80 transition-colors">
+                            立即重试
+                        </button>
+                        <button id="auto-retry-btn" class="px-4 py-2 bg-gray-600 rounded hover:bg-gray-500 transition-colors">
+                            5秒后自动重试
+                        </button>
+                        <button id="show-error-btn" class="px-4 py-2 bg-gray-600 rounded hover:bg-gray-500 transition-colors text-xs">
+                            显示错误详情
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <!-- 分析信息 -->
+        <div class="mt-6 grid grid-cols-1 md:grid-cols-2 gap-4">
+            <!-- 波段筛选结果 -->
+            <div class="bg-dark-light rounded-lg p-4 border border-gray-700">
+                <h3 class="text-lg font-semibold mb-3 flex items-center">
+                    <i class="fa fa-filter text-primary mr-2"></i>低点抬高币种筛选结果
+                </h3>
+                <div id="filter-results" class="text-gray-300 text-sm">
+                    <p>点击"筛选低点抬高币种"按钮进行分析...</p>
+                </div>
+                <div id="filter-loading" class="hidden mt-3">
+                    <div class="flex items-center">
+                        <div class="inline-block w-4 h-4 border-2 border-primary border-t-transparent rounded-full animate-spin mr-2"></div>
+                        <span class="text-sm">正在分析币种数据...</span>
+                    </div>
+                </div>
+            </div>
+            
+            <div class="bg-dark-light rounded-lg p-4 border border-gray-700">
+                <h3 class="text-lg font-semibold mb-3 flex items-center">
+                    <i class="fa fa-info-circle text-primary mr-2"></i>波段分析说明
+                </h3>
+                <ul class="text-gray-300 text-sm space-y-2">
+                    <li class="flex items-start">
+                        <i class="fa fa-check-circle text-success mt-1 mr-2"></i>
+                        <span>图表中自动识别并连接了高低波段点，遵循"高-低-高-低"顺序</span>
+                    </li>
+                    <li class="flex items-start">
+                        <i class="fa fa-check-circle text-success mt-1 mr-2"></i>
+                        <span>高低波段之间至少存在<span id="min-candles-display">4</span>根K线</span>
+                    </li>
+                    <li class="flex items-start">
+                        <i class="fa fa-check-circle text-success mt-1 mr-2"></i>
+                        <span><strong>支撑位</strong>：价格下跌时可能遇到支撑的价位，用绿色线标记</span>
+                    </li>
+                    <li class="flex items-start">
+                        <i class="fa fa-check-circle text-success mt-1 mr-2"></i>
+                        <span><strong>阻力位</strong>：价格上涨时可能遇到阻力的价位，用红色线标记</span>
+                    </li>
+                    <li class="flex items-start">
+                        <i class="fa fa-check-circle text-success mt-1 mr-2"></i>
+                        <span>数据来源：币安(Binance)公开行情API</span>
+                    </li>
+                </ul>
+            </div>
+            
+            <div class="bg-dark-light rounded-lg p-4 border border-gray-700">
+                <h3 class="text-lg font-semibold mb-3 flex items-center">
+                    <i class="fa fa-lightbulb-o text-yellow-500 mr-2"></i>市场洞察
+                </h3>
+                <div id="market-insight" class="text-gray-300 text-sm">
+                    <p>加载数据后将显示市场趋势分析...</p>
+                </div>
+            </div>
+        </div>
+    </main>
+    
+    <!-- 页脚 -->
+    <footer class="bg-dark-light border-t border-gray-700 mt-8 py-6">
+        <div class="container mx-auto px-4 text-center text-gray-400 text-sm">
+            <p>数据来源: Binance 公开API</p>
+            <p class="mt-2">© 2023 加密货币波段分析工具 | 仅供参考，不构成投资建议</p>
+        </div>
+    </footer>
+    
+    <script>
+        // 全局变量
+        let chart = null; // ECharts实例，初始化为null
+        let currentTimeframe = '60'; // 时间周期
+        let currentBinanceInterval = '1h'; // 币安API时间周期
+        let currentCryptoPair = 'BTCUSDT'; // 当前选中的币种对
+        let minCandlesBetweenWaves = 4;
+        let klinesData = [];
+        let wavePoints = [];
+        let supportLevels = []; // 支撑位
+        let resistanceLevels = []; // 阻力位
+        let showSupport = true; // 是否显示支撑位
+        let showResistance = true; // 是否显示阻力位
+        let showWaveConnection = true; // 是否显示波段连接
+        let lastErrorDetails = '';
+        let isChartLoaded = false; // 标记图表是否已加载
+        let retryCount = 0; // 重试计数器
+        let maxRetries = 3; // 最大重试次数
+        let autoRetryTimer = null; // 自动重试计时器
+        let chartRenderAttempts = 0; // 图表渲染尝试次数
+        const maxChartRenderAttempts = 5; // 最大图表渲染尝试次数
+        let topVolumeCryptos = []; // 成交额最大的币种列表
+        
+        // 币安API备用域名列表
+        const binanceApiEndpoints = [
+            'https://api.binance.com',
+            'https://api1.binance.com',
+            'https://api2.binance.com',
+            'https://api3.binance.com'
+        ];
+        let currentEndpointIndex = 0; // 当前使用的API端点索引
+        
+        // 币种信息映射表
+        const cryptoInfo = {
+            'BTCUSDT': { name: '比特币', symbol: 'BTC' },
+            'ETHUSDT': { name: '以太坊', symbol: 'ETH' },
+            'BNBUSDT': { name: '币安币', symbol: 'BNB' },
+            'SOLUSDT': { name: '索拉纳', symbol: 'SOL' },
+            'ADAUSDT': { name: '卡尔达诺', symbol: 'ADA' },
+            'XRPUSDT': { name: '瑞波币', symbol: 'XRP' },
+            'DOGEUSDT': { name: '狗狗币', symbol: 'DOGE' },
+            'DOTUSDT': { name: '波卡', symbol: 'DOT' },
+            'LTCUSDT': { name: '莱特币', symbol: 'LTC' },
+            'AVAXUSDT': { name: 'Avalanche', symbol: 'AVAX' },
+            'MATICUSDT': { name: 'Polygon', symbol: 'MATIC' },
+            'LINKUSDT': { name: 'Chainlink', symbol: 'LINK' },
+            'UNIUSDT': { name: 'Uniswap', symbol: 'UNI' },
+            'ATOMUSDT': { name: 'Cosmos', symbol: 'ATOM' },
+            'ETCUSDT': { name: '以太坊经典', symbol: 'ETC' },
+            'XLMUSDT': { name: '恒星币', symbol: 'XLM' },
+            'VETUSDT': { name: '唯链', symbol: 'VET' },
+            'FILUSDT': { name: 'Filecoin', symbol: 'FIL' },
+            'TRXUSDT': { name: '波场', symbol: 'TRX' },
+            'EGLDUSDT': { name: 'Elrond', symbol: 'EGLD' },
+            'XTZUSDT': { name: 'Tezos', symbol: 'XTZ' },
+            'ALGOUSDT': { name: 'Algorand', symbol: 'ALGO' },
+            'NEARUSDT': { name: 'NEAR Protocol', symbol: 'NEAR' },
+            'ICPUSDT': { name: 'Internet Computer', symbol: 'ICP' },
+            'APTUSDT': { name: 'Aptos', symbol: 'APT' },
+            'OPUSDT': { name: 'Optimism', symbol: 'OP' },
+            'ARBUSDT': { name: 'Arbitrum', symbol: 'ARB' },
+            'INJUSDT': { name: 'Injective', symbol: 'INJ' },
+            'IMXUSDT': { name: 'Immutable', symbol: 'IMX' },
+            'MANAUSDT': { name: 'Decentraland', symbol: 'MANA' },
+            'SANDUSDT': { name: 'The Sandbox', symbol: 'SAND' },
+            'AXSUSDT': { name: 'Axie Infinity', symbol: 'AXS' },
+            'THETAUSDT': { name: 'Theta Network', symbol: 'THETA' },
+            'FTMUSDT': { name: 'Fantom', symbol: 'FTM' },
+            'HBARUSDT': { name: 'Hedera', symbol: 'HBAR' },
+            'ONEUSDT': { name: 'Harmony', symbol: 'ONE' },
+            'ICXUSDT': { name: 'ICON', symbol: 'ICX' },
+            'QTUMUSDT': { name: 'Qtum', symbol: 'QTUM' },
+            'ZECUSDT': { name: 'Zcash', symbol: 'ZEC' },
+            'XMRUSDT': { name: '门罗币', symbol: 'XMR' },
+            'DASHUSDT': { name: '达世币', symbol: 'DASH' },
+            'CRVUSDT': { name: 'Curve', symbol: 'CRV' },
+            'SUSHIUSDT': { name: 'SushiSwap', symbol: 'SUSHI' },
+            'AAVEUSDT': { name: 'Aave', symbol: 'AAVE' },
+            'MKRUSDT': { name: 'Maker', symbol: 'MKR' },
+            'COMPUSDT': { name: 'Compound', symbol: 'COMP' },
+            'YFIUSDT': { name: 'Yearn.finance', symbol: 'YFI' },
+            'BATUSDT': { name: 'Basic Attention Token', symbol: 'BAT' },
+            'ENJUSDT': { name: 'Enjin Coin', symbol: 'ENJ' },
+            'CHZUSDT': { name: 'Chiliz', symbol: 'CHZ' },
+            'FLOWUSDT': { name: 'Flow', symbol: 'FLOW' },
+            'KLAYUSDT': { name: 'Klaytn', symbol: 'KLAY' }
+        };
+        
+        // DOM元素
+        const chartContainer = document.getElementById('chart-container');
+        const chartFallback = document.getElementById('chart-fallback');
+        const fallbackRetryBtn = document.getElementById('fallback-retry-btn');
+        const loadingIndicator = document.getElementById('loading-indicator');
+        const errorMessage = document.getElementById('error-message');
+        const errorDetailsContainer = document.getElementById('error-details-container');
+        const retryBtn = document.getElementById('retry-btn');
+        const autoRetryBtn = document.getElementById('auto-retry-btn');
+        const showErrorBtn = document.getElementById('show-error-btn');
+        const refreshBtn = document.getElementById('refresh-btn');
+        const resetZoomBtn = document.getElementById('reset-zoom-btn');
+        const timeframeBtns = document.querySelectorAll('.timeframe-btn');
+        const cryptoSelect = document.getElementById('crypto-select');
+        const waveSettingSelect = document.getElementById('wave-setting');
+        const minCandlesDisplay = document.getElementById('min-candles-display');
+        const connectionStatus = document.getElementById('connection-status');
+        const cryptoPriceEl = document.getElementById('crypto-price');
+        const priceChangeEl = document.getElementById('price-change');
+        const change24hEl = document.getElementById('24h-change');
+        const change24hPercentEl = document.getElementById('24h-change-percent');
+        const highLow24hEl = document.getElementById('24h-high-low');
+        const updateTimeEl = document.getElementById('update-time');
+        const marketInsightEl = document.getElementById('market-insight');
+        const retryCountdownEl = document.getElementById('retry-countdown');
+        const cryptoPairEl = document.getElementById('crypto-pair');
+        const supportLevelsEl = document.getElementById('support-levels');
+        const resistanceLevelsEl = document.getElementById('resistance-levels');
+        const supportToggle = document.getElementById('support-toggle');
+        const resistanceToggle = document.getElementById('resistance-toggle');
+        const waveConnectionToggle = document.getElementById('wave-connection-toggle');
+        
+        // 显示图表备用界面
+        function showChartFallback() {
+            chartFallback.classList.remove('hidden');
+        }
+        
+        // 隐藏图表备用界面
+        function hideChartFallback() {
+            chartFallback.classList.add('hidden');
+        }
+        
+        // 检查图表实例是否有效
+        function isChartValid() {
+            return chart !== null && typeof chart === 'object' && typeof chart.getOption === 'function';
+        }
+        
+        // 初始化ECharts图表
+        async function initChart() {
+            // 重置状态
+            isChartLoaded = false;
+            retryCount = 0; // 重置重试计数器
+            clearTimeout(autoRetryTimer); // 清除自动重试计时器
+            hideChartFallback(); // 隐藏备用界面
+            
+            // 销毁现有图表（增加安全检查）
+            if (isChartValid()) {
+                try {
+                    chart.dispose();
+                } catch (error) {
+                    console.warn('销毁图表时出错:', error);
+                }
+                chart = null;
+            }
+            
+            showLoading();
+            updateConnectionStatus('初始化图表...', 'yellow');
+            
+            try {
+                // 首先获取成交额最大的20个币种
+                await fetchTopVolumeCryptos();
+                
+                // 检查ECharts是否加载
+                if (typeof echarts === 'undefined') {
+                    throw new Error('ECharts库未正确加载');
+                }
+                
+                // 检查图表容器是否存在且有尺寸
+                if (!chartContainer) {
+                    throw new Error('图表容器元素不存在');
+                }
+                
+                // 确保图表容器有尺寸
+                if (chartContainer.clientWidth === 0 || chartContainer.clientHeight === 0) {
+                    // 尝试强制设置尺寸
+                    chartContainer.style.width = '100%';
+                    chartContainer.style.minHeight = '400px';
+                    
+                    // 检查是否成功设置了尺寸
+                    if (chartContainer.clientWidth === 0 || chartContainer.clientHeight === 0) {
+                        throw new Error('无法为图表容器设置有效尺寸');
+                    }
+                }
+                
+                // 初始化图表实例
+                chart = echarts.init(chartContainer);
+                
+                // 验证图表是否初始化成功
+                if (!isChartValid()) {
+                    throw new Error('图表初始化失败，无法创建有效的ECharts实例');
+                }
+                
+                // 设置图表响应式
+                window.addEventListener('resize', function() {
+                    if (isChartValid()) {
+                        chart.resize();
+                    }
+                });
+                
+                // 启用鼠标滚轮缩放和拖拽平移
+                chart.on('mousewheel', function(params) {
+                    handleMouseWheel(params);
+                });
+                
+                isChartLoaded = true;
+                updateConnectionStatus('图表已初始化', 'green');
+                
+                // 开始数据处理流程
+                startDataProcessing();
+                
+            } catch (error) {
+                logError('图表初始化失败', error);
+                showError();
+                errorDetailsContainer.textContent = '图表加载失败: ' + error.message;
+                errorDetailsContainer.classList.remove('hidden');
+                
+                // 显示备用界面
+                showChartFallback();
+                
+                // 5秒后尝试重新初始化
+                setTimeout(initChart, 5000);
+            }
+        }
+        
+        // 处理鼠标滚轮事件实现缩放
+        function handleMouseWheel(params) {
+            if (!isChartValid() || !klinesData.length) return;
+            
+            try {
+                // 获取当前坐标系和缩放比例
+                const option = chart.getOption();
+                if (!option || !option.xAxis || !option.xAxis[0]) {
+                    throw new Error('图表配置不完整，缺少xAxis');
+                }
+                const axis = option.xAxis[0];
+                
+                // 计算新的缩放范围
+                let newStart = axis.rangeStart || 0;
+                let newEnd = axis.rangeEnd || 1;
+                
+                // 滚轮向上 - 放大
+                if (params.wheelDelta > 0) {
+                    const scaleFactor = 0.9;
+                    const center = params.event.offsetX / chartContainer.clientWidth;
+                    newStart = center - (center - newStart) * scaleFactor;
+                    newEnd = center + (newEnd - center) * scaleFactor;
+                } 
+                // 滚轮向下 - 缩小
+                else {
+                    const scaleFactor = 1 / 0.9;
+                    const center = params.event.offsetX / chartContainer.clientWidth;
+                    newStart = center - (center - newStart) * scaleFactor;
+                    newEnd = center + (newEnd - center) * scaleFactor;
+                }
+                
+                // 限制缩放范围在0-1之间
+                newStart = Math.max(0, Math.min(newStart, 1));
+                newEnd = Math.max(0, Math.min(newEnd, 1));
+                
+                // 应用新的缩放范围
+                chart.setOption({
+                    xAxis: {
+                        rangeStart: newStart,
+                        rangeEnd: newEnd
+                    }
+                });
+                
+                // 阻止事件冒泡和默认行为
+                params.event.preventDefault();
+                params.event.stopPropagation();
+            } catch (error) {
+                logError('处理鼠标滚轮事件失败', error);
+                // 尝试重新初始化图表
+                if (isChartValid()) {
+                    initChart();
+                }
+            }
+        }
+        
+        // 重置缩放
+        function resetZoom() {
+            if (!isChartValid()) {
+                console.warn('图表实例无效，无法重置缩放');
+                return;
+            }
+            
+            try {
+                chart.setOption({
+                    xAxis: {
+                        rangeStart: 0,
+                        rangeEnd: 1
+                    },
+                    dataZoom: [
+                        {
+                            start: 0,
+                            end: 100
+                        },
+                        {
+                            start: 0,
+                            end: 100
+                        }
+                    ]
+                });
+            } catch (error) {
+                logError('重置缩放失败', error);
+                initChart();
+            }
+        }
+        
+        // 显示自定义错误信息
+        function showErrorWithMessage(message) {
+            loadingIndicator.classList.add('hidden');
+            errorMessage.classList.remove('hidden');
+            errorDetailsContainer.textContent = message;
+            errorDetailsContainer.classList.remove('hidden');
+            showErrorBtn.textContent = '显示错误详情';
+        }
+        
+        // 开始数据处理流程
+        async function startDataProcessing() {
+            // 先检查图表是否可用
+            if (!isChartLoaded || !isChartValid()) {
+                console.log('图表不可用，无法进行数据处理，将重新初始化');
+                await initChart();
+                return;
+            }
+            
+            // 从币安API获取K线数据
+            await fetchBinanceKlines();
+        }
+        
+        // 切换到下一个API端点
+        function switchToNextEndpoint() {
+            currentEndpointIndex = (currentEndpointIndex + 1) % binanceApiEndpoints.length;
+            console.log(`切换到备用API端点: ${binanceApiEndpoints[currentEndpointIndex]}`);
+        }
+        
+        // 带重试机制的HTTP请求
+        async function fetchWithRetry(url, options = {}, retries = 3, delay = 1000) {
+            try {
+                const response = await axios({
+                    url,
+                    ...options,
+                    timeout: 20000 // 20秒超时
+                });
+                return response;
+            } catch (error) {
+                if (retries > 0) {
+                    console.log(`请求失败，将在${delay}ms后重试 (剩余${retries}次)`, error.message);
+                    // 等待一段时间后重试
+                    await new Promise(resolve => setTimeout(resolve, delay));
+                    // 指数退避策略，每次重试延迟翻倍
+                    return fetchWithRetry(url, options, retries - 1, delay * 2);
+                }
+                // 所有重试都失败，抛出错误
+                throw error;
+            }
+        }
+        
+        // 从币安API获取K线数据
+        async function fetchBinanceKlines() {
+            if (!isChartLoaded || !isChartValid()) {
+                console.log('图表不可用，取消获取K线数据');
+                return;
+            }
+            
+            try {
+                const cryptoInfo = getCurrentCryptoInfo();
+                updateConnectionStatus(`从币安API加载${cryptoInfo.name}K线数据...`, 'yellow');
+                
+                // 币安API endpoint - 无需API Key的公开接口
+                const symbol = currentCryptoPair;
+                const interval = currentBinanceInterval;
+                const limit = 200; // 获取最近200根K线
+                
+                // 使用当前选中的API端点
+                const baseUrl = binanceApiEndpoints[currentEndpointIndex];
+                const url = `${baseUrl}/api/v3/klines?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+                
+                // 使用带重试机制的请求
+                const response = await fetchWithRetry(url, {
+                    method: 'GET'
+                }, maxRetries);
+                
+                if (!response.data || !Array.isArray(response.data)) {
+                    throw new Error('币安API返回数据格式不正确');
+                }
+                
+                // 处理K线数据
+                klinesData = response.data.map(item => {
+                    return {
+                        time: item[0], // 时间戳(毫秒)
+                        open: parseFloat(item[1]),
+                        high: parseFloat(item[2]),
+                        low: parseFloat(item[3]),
+                        close: parseFloat(item[4]),
+                        volume: parseFloat(item[5])
+                    };
+                });
+                
+                // 验证数据有效性
+                if (klinesData.length === 0) {
+                    throw new Error('未获取到有效的K线数据');
+                }
+                
+                // 获取最新价格数据
+                await fetchBinanceTicker();
+                
+                // 识别波段点
+                wavePoints = identifyWavePoints(klinesData);
+                
+                // 识别支撑位和阻力位
+                identifySupportResistanceLevels();
+                
+                // 绘制K线图和波段分析，带重试机制
+                renderChartWithRetry();
+                
+                // 更新市场洞察
+                updateMarketInsight(wavePoints);
+                
+                // 更新支撑阻力位显示
+                updateSupportResistanceUI();
+                
+                // 更新时间
+                const now = new Date();
+                updateTimeEl.textContent = now.toLocaleString();
+                
+                updateConnectionStatus('数据已更新', 'green');
+                hideLoading();
+                
+                // 重置重试计数器
+                retryCount = 0;
+                chartRenderAttempts = 0;
+                
+            } catch (error) {
+                logError('获取K线数据失败', error);
+                
+                // 重试逻辑
+                retryCount++;
+                if (retryCount <= maxRetries) {
+                    // 切换到下一个API端点
+                    switchToNextEndpoint();
+                    
+                    const cryptoInfo = getCurrentCryptoInfo();
+                    updateConnectionStatus(`${cryptoInfo.name}数据获取失败，正在重试(${retryCount}/${maxRetries})...`, 'yellow');
+                    
+                    // 显示倒计时
+                    showRetryCountdown(3);
+                    
+                    // 3秒后重试
+                    setTimeout(() => {
+                        fetchBinanceKlines();
+                    }, 3000);
+                } else {
+                    // 达到最大重试次数
+                    updateConnectionStatus('多次尝试后仍无法获取数据', 'red');
+                    showErrorWithMessage('无法从币安API获取K线数据，已尝试多个服务器节点，请检查网络连接或稍后重试');
+                    showChartFallback(); // 显示备用界面
+                    startAutoRetry(10); // 10秒后自动重试
+                }
+            }
+        }
+        
+        // 带重试机制的图表渲染
+        function renderChartWithRetry() {
+            try {
+                // 增加尝试次数
+                chartRenderAttempts++;
+                
+                // 检查是否有数据
+                if (klinesData.length === 0) {
+                    throw new Error('没有可渲染的K线数据');
+                }
+                
+                // 检查图表是否有效
+                if (!isChartValid()) {
+                    throw new Error('图表实例无效，无法渲染');
+                }
+                
+                // 尝试渲染图表
+                updateChartDisplay();
+                
+                // 渲染成功，重置尝试次数
+                chartRenderAttempts = 0;
+                
+            } catch (error) {
+                logError(`图表渲染尝试 ${chartRenderAttempts} 失败`, error);
+                
+                // 如果还没达到最大尝试次数，继续尝试
+                if (chartRenderAttempts < maxChartRenderAttempts) {
+                    console.log(`将在 ${chartRenderAttempts * 1000}ms 后重试渲染图表`);
+                    setTimeout(renderChartWithRetry, chartRenderAttempts * 1000);
+                } else {
+                    // 达到最大尝试次数
+                    showErrorWithMessage(`图表渲染失败，已尝试 ${maxChartRenderAttempts} 次: ${error.message}`);
+                    showChartFallback(); // 显示备用界面
+                    chartRenderAttempts = 0; // 重置计数器
+                }
+            }
+        }
+        
+        // 从币安API获取最新价格和24小时数据
+        async function fetchBinanceTicker() {
+            try {
+                const symbol = currentCryptoPair;
+                const baseUrl = binanceApiEndpoints[currentEndpointIndex];
+                const url = `${baseUrl}/api/v3/ticker/24hr?symbol=${symbol}`;
+                
+                const response = await fetchWithRetry(url, {
+                    method: 'GET'
+                }, maxRetries);
+                
+                if (!response.data) {
+                    throw new Error('币安行情API返回数据为空');
+                }
+                
+                const data = response.data;
+                
+                // 处理价格数据
+                const price = parseFloat(data.lastPrice).toFixed(2);
+                const change = parseFloat(data.priceChange).toFixed(2);
+                const changePercent = parseFloat(data.priceChangePercent).toFixed(2);
+                const high = parseFloat(data.highPrice).toFixed(2);
+                const low = parseFloat(data.lowPrice).toFixed(2);
+                
+                updatePriceUI(price, change, changePercent, high, low);
+                
+                return data;
+            } catch (error) {
+                logError('获取价格数据失败', error);
+                throw error; // 让调用者处理错误
+            }
+        }
+        
+        // 从币安API获取成交额最大的20个币种
+        async function fetchTopVolumeCryptos() {
+            try {
+                const baseUrl = binanceApiEndpoints[currentEndpointIndex];
+                const url = `${baseUrl}/api/v3/ticker/24hr`;
+                
+                updateConnectionStatus('获取成交额最大的币种...', 'yellow');
+                
+                const response = await fetchWithRetry(url, {
+                    method: 'GET'
+                }, maxRetries);
+                
+                if (!response.data || !Array.isArray(response.data)) {
+                    throw new Error('币安API返回数据格式不正确');
+                }
+                
+                // 常见稳定币列表
+                const stablecoins = ['USDT', 'USDC', 'BUSD', 'DAI', 'USDP', 'TUSD', 'USDD', 'GUSD', 'PAX', 'UST', 'USDN', 'SUSD', 'FEI', 'FRAX', 'MIM'];
+                
+                // 筛选USDT交易对，排除稳定币，按成交额排序，取前20个
+                const usdtPairs = response.data.filter(item => {
+                    if (!item.symbol.endsWith('USDT')) return false;
+                    // 提取基础币种（去掉USDT后缀）
+                    const baseSymbol = item.symbol.replace('USDT', '');
+                    // 排除稳定币
+                    return !stablecoins.includes(baseSymbol);
+                });
+                usdtPairs.sort((a, b) => parseFloat(b.quoteVolume) - parseFloat(a.quoteVolume));
+                topVolumeCryptos = usdtPairs.slice(0, 20);
+                
+                // 更新币种选择下拉菜单
+                updateCryptoSelect();
+                
+                updateConnectionStatus('币种列表已更新', 'green');
+                
+                return topVolumeCryptos;
+            } catch (error) {
+                logError('获取币种列表失败', error);
+                // 如果获取失败，使用默认币种列表
+                console.log('使用默认币种列表');
+                return [];
+            }
+        }
+        
+        // 更新币种选择下拉菜单
+        function updateCryptoSelect() {
+            const cryptoSelect = document.getElementById('crypto-select');
+            if (!cryptoSelect) return;
+            
+            // 清空现有选项
+            cryptoSelect.innerHTML = '';
+            
+            // 添加新选项
+            topVolumeCryptos.forEach(item => {
+                const symbol = item.symbol;
+                // 提取币种名称（去掉USDT后缀）
+                const name = symbol.replace('USDT', '');
+                
+                const option = document.createElement('option');
+                option.value = symbol;
+                option.textContent = `${name} (${symbol})`;
+                cryptoSelect.appendChild(option);
+            });
+            
+            // 确保当前选中的币种在列表中
+            if (topVolumeCryptos.some(item => item.symbol === currentCryptoPair)) {
+                cryptoSelect.value = currentCryptoPair;
+            } else if (topVolumeCryptos.length > 0) {
+                // 如果当前币种不在列表中，选择第一个
+                currentCryptoPair = topVolumeCryptos[0].symbol;
+                cryptoSelect.value = currentCryptoPair;
+            }
+        }
+        
+        // 识别支撑位和阻力位
+        function identifySupportResistanceLevels() {
+            if (!klinesData || klinesData.length === 0) {
+                supportLevels = [];
+                resistanceLevels = [];
+                return;
+            }
+            
+            // 重置支撑位和阻力位数组
+            supportLevels = [];
+            resistanceLevels = [];
+            
+            // 1. 使用波段分析中的高低点作为基础支撑阻力位
+            wavePoints.forEach(point => {
+                if (point.type === 'high') {
+                    resistanceLevels.push(point.price);
+                } else {
+                    supportLevels.push(point.price);
+                }
+            });
+            
+            // 2. 添加最近的高点和低点作为额外的支撑阻力位
+            const recentData = klinesData.slice(-30); // 最近30根K线
+            const recentHigh = Math.max(...recentData.map(item => item.high));
+            const recentLow = Math.min(...recentData.map(item => item.low));
+            
+            resistanceLevels.push(recentHigh);
+            supportLevels.push(recentLow);
+            
+            // 3. 计算价格密集区域作为支撑阻力位
+            const priceLevels = klinesData.flatMap(item => [item.open, item.close, item.high, item.low]);
+            const levelFrequency = {};
+            
+            // 计算价格波动范围，用于确定价格区间大小
+            const priceRange = Math.max(...priceLevels) - Math.min(...priceLevels);
+            const interval = Math.max(0.01, priceRange / 100); // 区间大小
+            
+            // 统计每个价格区间的出现频率
+            priceLevels.forEach(price => {
+                const roundedPrice = Math.round(price / interval) * interval;
+                const key = roundedPrice.toFixed(2);
+                levelFrequency[key] = (levelFrequency[key] || 0) + 1;
+            });
+            
+            // 将频率高的价格区间添加为支撑阻力位
+            const sortedLevels = Object.entries(levelFrequency)
+                .sort((a, b) => b[1] - a[1])
+                .slice(0, 5) // 取前5个最密集的价格区间
+                .map(entry => parseFloat(entry[0]));
+            
+            // 将这些价格区间添加到支撑阻力位（根据当前价格位置判断）
+            const currentPrice = klinesData[klinesData.length - 1].close;
+            sortedLevels.forEach(level => {
+                if (level < currentPrice * 0.98) { // 低于当前价格2%以上的作为支撑位
+                    supportLevels.push(level);
+                } else if (level > currentPrice * 1.02) { // 高于当前价格2%以上的作为阻力位
+                    resistanceLevels.push(level);
+                }
+            });
+            
+            // 去重并排序
+            supportLevels = [...new Set(supportLevels)].sort((a, b) => a - b);
+            resistanceLevels = [...new Set(resistanceLevels)].sort((a, b) => a - b);
+            
+            // 只保留最相关的几个支撑阻力位（最多5个）
+            const currentPriceIndex = supportLevels.findIndex(level => level >= currentPrice);
+            // 保留当前价格附近的支撑位
+            supportLevels = supportLevels.slice(Math.max(0, currentPriceIndex - 5), currentPriceIndex + 1);
+            
+            const resistancePriceIndex = resistanceLevels.findIndex(level => level >= currentPrice);
+            // 保留当前价格附近的阻力位
+            resistanceLevels = resistanceLevels.slice(resistancePriceIndex, resistancePriceIndex + 5);
+        }
+        
+        // 更新支撑阻力位UI显示
+        function updateSupportResistanceUI() {
+            // 清空现有内容
+            supportLevelsEl.innerHTML = '';
+            resistanceLevelsEl.innerHTML = '';
+            
+            // 获取当前价格
+            const currentPrice = klinesData.length > 0 ? klinesData[klinesData.length - 1].close : 0;
+            
+            // 显示支撑位
+            if (supportLevels.length > 0) {
+                supportLevels.forEach(level => {
+                    const distance = ((currentPrice - level) / currentPrice * 100).toFixed(2);
+                    const levelEl = document.createElement('div');
+                    levelEl.className = 'level-label bg-support/20 text-support';
+                    levelEl.title = `低于当前价格 ${distance}%`;
+                    levelEl.textContent = level.toFixed(2);
+                    supportLevelsEl.appendChild(levelEl);
+                });
+            } else {
+                supportLevelsEl.innerHTML = '<p class="text-gray-400 text-sm">没有识别到支撑位</p>';
+            }
+            
+            // 显示阻力位
+            if (resistanceLevels.length > 0) {
+                resistanceLevels.forEach(level => {
+                    const distance = ((level - currentPrice) / currentPrice * 100).toFixed(2);
+                    const levelEl = document.createElement('div');
+                    levelEl.className = 'level-label bg-resistance/20 text-resistance';
+                    levelEl.title = `高于当前价格 ${distance}%`;
+                    levelEl.textContent = level.toFixed(2);
+                    resistanceLevelsEl.appendChild(levelEl);
+                });
+            } else {
+                resistanceLevelsEl.innerHTML = '<p class="text-gray-400 text-sm">没有识别到阻力位</p>';
+            }
+        }
+        
+        // 切换支撑位显示状态
+        function toggleSupport() {
+            showSupport = supportToggle.checked;
+            console.log(`支撑位显示状态: ${showSupport}`);
+            if (isChartValid() && klinesData.length > 0) {
+                updateChartDisplay();
+            }
+        }
+        
+        // 切换阻力位显示状态
+        function toggleResistance() {
+            showResistance = resistanceToggle.checked;
+            console.log(`阻力位显示状态: ${showResistance}`);
+            if (isChartValid() && klinesData.length > 0) {
+                updateChartDisplay();
+            }
+        }
+        
+        // 切换波段连接显示状态
+        function toggleWaveConnection() {
+            showWaveConnection = waveConnectionToggle.checked;
+            console.log(`波段线显示状态: ${showWaveConnection}`);
+            if (isChartValid() && klinesData.length > 0) {
+                updateChartDisplay();
+            }
+        }
+        
+        // 获取当前选中币种的信息
+        function getCurrentCryptoInfo() {
+            return cryptoInfo[currentCryptoPair] || { 
+                name: currentCryptoPair.replace('USDT', ''), 
+                symbol: currentCryptoPair.replace('USDT', '')
+            };
+        }
+        
+        // 构建图表系列配置
+        function buildChartSeries() {
+            if (!klinesData.length) return [];
+            
+            const cryptoInfo = getCurrentCryptoInfo();
+            
+            // 准备K线数据
+            const klineData = klinesData.map(item => [
+                item.time, // 时间
+                item.open, // 开盘价
+                item.close, // 收盘价
+                item.low, // 最低价
+                item.high // 最高价
+            ]);
+            
+            // 准备波段线数据
+            let waveLineData = [];
+            if (wavePoints.length > 0) {
+                waveLineData = wavePoints.map(point => [
+                    point.time,
+                    point.price
+                ]);
+            }
+            
+            // 准备波段点标记数据
+            const highPoints = wavePoints.filter(p => p.type === 'high').map(point => ({
+                name: '高点',
+                value: [point.time, point.price, point.price.toFixed(2)],
+                itemStyle: { color: '#F53F3F' }
+            }));
+            
+            const lowPoints = wavePoints.filter(p => p.type === 'low').map(point => ({
+                name: '低点',
+                value: [point.time, point.price, point.price.toFixed(2)],
+                itemStyle: { color: '#00B578' }
+            }));
+            
+            // 图表系列配置
+            const series = [
+                {
+                    name: `${cryptoInfo.symbol} K线`,
+                    type: 'candlestick',
+                    data: klineData,
+                    itemStyle: {
+                        color: '#F53F3F', // 上涨颜色
+                        color0: '#00B578', // 下跌颜色
+                        borderColor: '#F53F3F',
+                        borderColor0: '#00B578'
+                    },
+                    emphasis: {
+                        itemStyle: {
+                            color: '#FF4D4F',
+                            color0: '#36CFC9',
+                            borderColor: '#FF4D4F',
+                            borderColor0: '#36CFC9'
+                        }
+                    }
+                },
+                // 只有当开关开启时才添加波段线
+                ...(showWaveConnection ? [{
+                    name: '波段线',
+                    type: 'line',
+                    data: waveLineData,
+                    symbol: 'none',
+                    lineStyle: {
+                        width: 2,
+                        color: function(params) {
+                            // 根据波段类型设置颜色
+                            if (params.dataIndex > 0 && wavePoints.length > params.dataIndex) {
+                                return wavePoints[params.dataIndex - 1].type === 'high' ? '#F53F3F' : '#00B578';
+                            }
+                            return '#165DFF';
+                        }
+                    },
+                    smooth: false
+                }] : []),
+                {
+                    name: '高点标记',
+                    type: 'scatter',
+                    data: highPoints,
+                    symbol: 'circle',
+                    symbolSize: 8,
+                    label: {
+                        show: true,
+                        position: 'top',
+                        formatter: function(params) {
+                            return params.value[2];
+                        },
+                        color: '#F53F3F',
+                        fontSize: 12
+                    }
+                },
+                {
+                    name: '低点标记',
+                    type: 'scatter',
+                    data: lowPoints,
+                    symbol: 'circle',
+                    symbolSize: 8,
+                    label: {
+                        show: true,
+                        position: 'bottom',
+                        formatter: function(params) {
+                            return params.value[2];
+                        },
+                        color: '#00B578',
+                        fontSize: 12
+                    }
+                }
+            ];
+            
+            // 添加支撑位和阻力位到图表（根据开关状态）
+            if (showSupport) {
+                // 添加支撑位
+                supportLevels.forEach((level, index) => {
+                    series.push({
+                        name: `支撑位 ${index + 1}`,
+                        type: 'line',
+                        data: klinesData.map(item => [item.time, level]),
+                        symbol: 'none',
+                        lineStyle: {
+                            width: 1.5,
+                            color: '#00B578',
+                            type: 'dashed'
+                        },
+                        label: {
+                            show: true,
+                            position: 'left',
+                            formatter: level.toFixed(2),
+                            color: '#00B578',
+                            fontSize: 11
+                        },
+                        tooltip: {
+                            formatter: `支撑位: ${level.toFixed(2)}`
+                        }
+                    });
+                });
+            }
+            
+            if (showResistance) {
+                // 添加阻力位
+                resistanceLevels.forEach((level, index) => {
+                    series.push({
+                        name: `阻力位 ${index + 1}`,
+                        type: 'line',
+                        data: klinesData.map(item => [item.time, level]),
+                        symbol: 'none',
+                        lineStyle: {
+                            width: 1.5,
+                            color: '#F53F3F',
+                            type: 'dashed'
+                        },
+                        label: {
+                            show: true,
+                            position: 'left',
+                            formatter: level.toFixed(2),
+                            color: '#F53F3F',
+                            fontSize: 11
+                        },
+                        tooltip: {
+                            formatter: `阻力位: ${level.toFixed(2)}`
+                        }
+                    });
+                });
+            }
+            
+            return series;
+        }
+        
+        // 更新图表显示
+        function updateChartDisplay() {
+            // 首先检查图表是否有效且有数据
+            if (!isChartValid() || klinesData.length === 0) {
+                console.warn('图表实例无效或无数据，无法更新图表显示');
+                return;
+            }
+            
+            try {
+                // 强制设置为完整显示范围
+                const currentRangeStart = 0;
+                const currentRangeEnd = 1;
+                
+                // 构建新的图表配置
+                const newOption = {
+                    backgroundColor: '#1D2129',
+                    tooltip: {
+                        trigger: 'axis',
+                        axisPointer: {
+                            type: 'cross',
+                            lineStyle: {
+                                color: '#475569'
+                            }
+                        },
+                        backgroundColor: 'rgba(29, 33, 41, 0.8)',
+                        borderColor: '#475569',
+                        textStyle: {
+                            color: '#E2E8F0'
+                        }
+                    },
+                    legend: {
+                        data: [`${getCurrentCryptoInfo().symbol} K线`, 
+                               ...(showWaveConnection ? ['波段线'] : []),
+                               ...(showSupport ? ['支撑位'] : []),
+                               ...(showResistance ? ['阻力位'] : [])],
+                        textStyle: {
+                            color: '#E2E8F0'
+                        },
+                        top: 10
+                    },
+                    grid: {
+                        left: '10%',
+                        right: '10%',
+                        bottom: '15%',
+                        top: '15%',
+                        containLabel: true
+                    },
+                    // 添加数据区域缩放组件
+                    dataZoom: [
+                        {
+                            type: 'inside',
+                            xAxisIndex: 0,
+                            start: currentRangeStart * 100,  // 转换为百分比
+                            end: currentRangeEnd * 100,      // 转换为百分比
+                            // 允许缩放和拖拽
+                            zoomLock: false,
+                            moveOnMouseMove: true,
+                            moveOnMouseWheel: false // 禁用鼠标滚轮触发内置缩放，使用自定义实现
+                        },
+                        {
+                            type: 'slider',
+                            xAxisIndex: 0,
+                            bottom: 5,
+                            start: currentRangeStart * 100,  // 转换为百分比
+                            end: currentRangeEnd * 100,      // 转换为百分比
+                            backgroundColor: 'rgba(29, 33, 41, 0.3)',
+                            borderColor: '#475569',
+                            handleStyle: {
+                                color: '#165DFF'
+                            },
+                            fillerColor: 'rgba(22, 93, 255, 0.2)'
+                        }
+                    ],
+                    xAxis: {
+                        type: 'time',
+                        axisLine: {
+                            lineStyle: {
+                                color: '#475569'
+                            }
+                        },
+                        axisLabel: {
+                            color: '#94A3B8',
+                            formatter: function(value) {
+                                const date = new Date(value);
+                                // 根据时间周期显示不同的格式
+                                if (currentBinanceInterval === '1w') {
+                                    return `${date.getMonth() + 1}/${date.getDate()}`;
+                                } else if (currentBinanceInterval === '1d') {
+                                    return `${date.getMonth() + 1}/${date.getDate()}`;
+                                } else {
+                                    return `${date.getHours()}:${date.getMinutes().toString().padStart(2, '0')}`;
+                                }
+                            }
+                        },
+                        splitLine: {
+                            show: true,
+                            lineStyle: {
+                                color: 'rgba(71, 85, 105, 0.2)'
+                            }
+                        }
+                    },
+                    yAxis: {
+                        type: 'value',
+                        axisLine: {
+                            lineStyle: {
+                                color: '#475569'
+                            }
+                        },
+                        axisLabel: {
+                            color: '#94A3B8',
+                            formatter: '{value}'
+                        },
+                        splitLine: {
+                            show: true,
+                            lineStyle: {
+                                color: 'rgba(71, 85, 105, 0.2)'
+                            }
+                        },
+                        scale: true // 开启缩放，使价格轴动态适应数据
+                    },
+                    series: buildChartSeries() // 使用新的系列配置
+                };
+                
+                // 完全重绘图表
+                chart.clear();
+                chart.setOption(newOption);
+                
+                // 确保图表渲染完成
+                setTimeout(() => {
+                    if (isChartValid()) {
+                        chart.resize();
+                    }
+                }, 100);
+                
+                // 隐藏备用界面
+                hideChartFallback();
+                
+            } catch (error) {
+                logError('更新图表显示失败', error);
+                throw error; // 让调用者处理错误
+            }
+        }
+        
+        // 显示重试倒计时
+        function showRetryCountdown(seconds) {
+            let count = seconds;
+            retryCountdownEl.textContent = `(${count}s后重试)`;
+            retryCountdownEl.classList.remove('hidden');
+            
+            const countdownInterval = setInterval(() => {
+                count--;
+                retryCountdownEl.textContent = `(${count}s后重试)`;
+                
+                if (count <= 0) {
+                    clearInterval(countdownInterval);
+                    retryCountdownEl.classList.add('hidden');
+                }
+            }, 1000);
+        }
+        
+        // 开始自动重试
+        function startAutoRetry(seconds) {
+            clearTimeout(autoRetryTimer);
+            let count = seconds;
+            
+            // 更新按钮文本
+            autoRetryBtn.textContent = `${count}秒后自动重试`;
+            
+            autoRetryTimer = setInterval(async () => {
+                count--;
+                autoRetryBtn.textContent = `${count}秒后自动重试`;
+                
+                if (count <= 0) {
+                    clearInterval(autoRetryTimer);
+                    await reloadData();
+                }
+            }, 1000);
+        }
+        
+        // 更新价格UI
+        function updatePriceUI(price, change, changePercent, high, low) {
+            const cryptoInfo = getCurrentCryptoInfo();
+            
+            // 更新币种对显示
+            cryptoPairEl.textContent = `${cryptoInfo.name} (${currentCryptoPair}) 价格`;
+            
+            cryptoPriceEl.textContent = price;
+            change24hEl.textContent = change;
+            change24hPercentEl.textContent = `${changePercent}%`;
+            highLow24hEl.textContent = `${high} / ${low}`;
+            
+            // 设置涨跌颜色
+            if (parseFloat(change) >= 0) {
+                priceChangeEl.textContent = `+${changePercent}%`;
+                priceChangeEl.className = 'ml-2 text-sm px-2 py-0.5 rounded bg-success/20 text-success';
+                change24hEl.className = 'text-2xl font-bold text-success';
+                change24hPercentEl.className = 'ml-2 text-sm px-2 py-0.5 rounded bg-success/20 text-success';
+            } else {
+                priceChangeEl.textContent = `${changePercent}%`;
+                priceChangeEl.className = 'ml-2 text-sm px-2 py-0.5 rounded bg-danger/20 text-danger';
+                change24hEl.className = 'text-2xl font-bold text-danger';
+                change24hPercentEl.className = 'ml-2 text-sm px-2 py-0.5 rounded bg-danger/20 text-danger';
+            }
+        }
+        
+        // 检查是否为低点（比前后minCandlesBetweenWaves根K线都低）
+        function isLowPoint(data, index) {
+            for (let j = 1; j <= minCandlesBetweenWaves; j++) {
+                if (data[index].low >= data[index - j].low || data[index].low >= data[index + j].low) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        
+        // 检查是否为高点（比前后minCandlesBetweenWaves根K线都高）
+        function isHighPoint(data, index) {
+            for (let j = 1; j <= minCandlesBetweenWaves; j++) {
+                if (data[index].high <= data[index - j].high || data[index].high <= data[index + j].high) {
+                    return false;
+                }
+            }
+            return true;
+        }
+        
+        // 识别波段高低点
+        function identifyWavePoints(data) {
+            if (!data || data.length === 0) return [];
+            
+            const points = [];
+            let currentPendingPoint = null; // 当前等待确认的点
+            
+            // 收集所有潜在的高点和低点
+            for (let i = minCandlesBetweenWaves; i < data.length - minCandlesBetweenWaves; i++) {
+                // 检查是否为低点
+                if (isLowPoint(data, i)) {
+                    const newLowPoint = {
+                        index: i,
+                        time: data[i].time,
+                        price: data[i].low,
+                        type: 'low'
+                    };
+                    
+                    // 处理低点逻辑
+                    if (!currentPendingPoint) {
+                        // 没有等待确认的点，设置当前低点为等待确认点
+                        currentPendingPoint = newLowPoint;
+                    } else if (currentPendingPoint.type === 'low') {
+                        // 已有等待确认的低点，比较价格
+                        if (newLowPoint.price < currentPendingPoint.price) {
+                            // 新低点更低，更新等待确认的点
+                            currentPendingPoint = newLowPoint;
+                        }
+                    } else if (currentPendingPoint.type === 'high') {
+                        // 已有等待确认的高点，现在出现低点，确认之前的高点
+                        points.push(currentPendingPoint);
+                        // 设置当前低点为新的等待确认点
+                        currentPendingPoint = newLowPoint;
+                    }
+                }
+                
+                // 检查是否为高点
+                if (isHighPoint(data, i)) {
+                    const newHighPoint = {
+                        index: i,
+                        time: data[i].time,
+                        price: data[i].high,
+                        type: 'high'
+                    };
+                    
+                    // 处理高点逻辑
+                    if (!currentPendingPoint) {
+                        // 没有等待确认的点，设置当前高点为等待确认点
+                        currentPendingPoint = newHighPoint;
+                    } else if (currentPendingPoint.type === 'high') {
+                        // 已有等待确认的高点，比较价格
+                        if (newHighPoint.price > currentPendingPoint.price) {
+                            // 新高点更高，更新等待确认的点
+                            currentPendingPoint = newHighPoint;
+                        }
+                    } else if (currentPendingPoint.type === 'low') {
+                        // 已有等待确认的低点，现在出现高点，确认之前的低点
+                        points.push(currentPendingPoint);
+                        // 设置当前高点为新的等待确认点
+                        currentPendingPoint = newHighPoint;
+                    }
+                }
+            }
+            
+            // 添加最后一个等待确认的点
+            if (currentPendingPoint) {
+                points.push(currentPendingPoint);
+            }
+            
+            return points;
+        }
+        
+        // 更新市场洞察
+        function updateMarketInsight(points) {
+            if (!points || points.length < 2) {
+                marketInsightEl.innerHTML = '<p>数据不足，无法提供市场洞察。</p>';
+                return;
+            }
+            
+            const cryptoInfo = getCurrentCryptoInfo();
+            const currentPrice = klinesData[klinesData.length - 1].close;
+            
+            // 获取最后两个点
+            const lastPoint = points[points.length - 1];
+            const prevPoint = points[points.length - 2];
+            
+            // 计算最后一个波段的变化
+            const priceDiff = lastPoint.price - prevPoint.price;
+            const priceDiffPercent = ((priceDiff / prevPoint.price) * 100).toFixed(2);
+            
+            let trend = '';
+            let trendColor = '';
+            
+            if (lastPoint.type === 'low' && prevPoint.type === 'high') {
+                // 从高点到低点 - 下跌趋势
+                trend = `下跌趋势，跌幅 ${Math.abs(priceDiffPercent)}%`;
+                trendColor = 'text-danger';
+            } else if (lastPoint.type === 'high' && prevPoint.type === 'low') {
+                // 从低点到高点 - 上涨趋势
+                trend = `上涨趋势，涨幅 ${priceDiffPercent}%`;
+                trendColor = 'text-success';
+            }
+            
+            // 预测下一个可能的点
+            const nextPointType = lastPoint.type === 'high' ? '低点' : '高点';
+            
+            // 分析当前价格与支撑阻力位的关系
+            let levelAnalysis = '';
+            if (supportLevels.length > 0) {
+                const nearestSupport = supportLevels.reduce((prev, curr) => {
+                    return (Math.abs(curr - currentPrice) < Math.abs(prev - currentPrice) && curr < currentPrice) ? curr : prev;
+                }, supportLevels[0]);
+                
+                const supportDistance = ((currentPrice - nearestSupport) / currentPrice * 100).toFixed(2);
+                levelAnalysis += `<p class="mt-2">最近支撑位: <span class="text-support">${nearestSupport.toFixed(2)}</span> (距离 ${supportDistance}%)</p>`;
+            }
+            
+            if (resistanceLevels.length > 0) {
+                const nearestResistance = resistanceLevels.reduce((prev, curr) => {
+                    return (Math.abs(curr - currentPrice) < Math.abs(prev - currentPrice) && curr > currentPrice) ? curr : prev;
+                }, resistanceLevels[0]);
+                
+                const resistanceDistance = ((nearestResistance - currentPrice) / currentPrice * 100).toFixed(2);
+                levelAnalysis += `<p>最近阻力位: <span class="text-resistance">${nearestResistance.toFixed(2)}</span> (距离 ${resistanceDistance}%)</p>`;
+            }
+            
+            marketInsightEl.innerHTML = `
+                <p>${cryptoInfo.name}最近波段: <span class="${trendColor} font-medium">${trend}</span></p>
+                <p class="mt-2">根据波段模式，下一个可能形成的是<span class="font-medium">${nextPointType}</span>。</p>
+                <p class="mt-2">当前识别到 <span class="text-primary font-medium">${points.length}</span> 个波段点，遵循交替模式。</p>
+                ${levelAnalysis}
+            `;
+        }
+        
+        // 显示加载状态
+        function showLoading() {
+            loadingIndicator.classList.remove('hidden');
+            errorMessage.classList.add('hidden');
+            hideChartFallback();
+        }
+        
+        // 隐藏加载状态
+        function hideLoading() {
+            loadingIndicator.classList.add('hidden');
+        }
+        
+        // 显示错误信息
+        function showError() {
+            loadingIndicator.classList.add('hidden');
+            errorMessage.classList.remove('hidden');
+            // 重置错误详情显示状态
+            errorDetailsContainer.classList.add('hidden');
+            showErrorBtn.textContent = '显示错误详情';
+        }
+        
+        // 更新连接状态
+        function updateConnectionStatus(text, color) {
+            let colorClass = '';
+            switch(color) {
+                case 'green':
+                    colorClass = 'text-success';
+                    break;
+                case 'red':
+                    colorClass = 'text-danger';
+                    break;
+                case 'yellow':
+                    colorClass = 'text-yellow-500';
+                    break;
+                default:
+                    colorClass = 'text-gray-400';
+            }
+            
+            connectionStatus.innerHTML = `<i class="fa fa-circle ${colorClass}"></i> ${text}`;
+        }
+        
+        // 日志错误信息
+        function logError(message, error) {
+            console.error(`[错误] ${message}:`, error);
+            
+            // 构建详细错误信息
+            let errorDetails = `错误信息: ${message}\n`;
+            
+            if (error.response) {
+                // 服务器响应了但状态码错误
+                errorDetails += `状态码: ${error.response.status}\n`;
+                errorDetails += `响应数据: ${JSON.stringify(error.response.data, null, 2)}\n`;
+                errorDetails += `请求URL: ${error.config.url}\n`;
+            } else if (error.request) {
+                // 没有收到响应
+                errorDetails += `没有收到服务器响应\n`;
+                errorDetails += `请求URL: ${error.config.url}\n`;
+            } else {
+                // 请求配置错误
+                errorDetails += `请求配置错误: ${error.message}\n`;
+            }
+            
+            // 保存错误详情供显示
+            lastErrorDetails = errorDetails;
+        }
+        
+        // 重新加载图表和数据
+        async function reloadData() {
+            // 清除自动重试计时器
+            clearTimeout(autoRetryTimer);
+            await initChart();
+        }
+        
+        // 事件监听器
+        retryBtn.addEventListener('click', reloadData);
+        fallbackRetryBtn.addEventListener('click', reloadData);
+        
+        autoRetryBtn.addEventListener('click', async () => {
+            clearTimeout(autoRetryTimer);
+            await reloadData();
+        });
+        
+        refreshBtn.addEventListener('click', async () => {
+            refreshBtn.classList.add('pulse');
+            await reloadData();
+            setTimeout(() => {
+                refreshBtn.classList.remove('pulse');
+            }, 1000);
+        });
+        
+        // 重置缩放按钮事件
+        resetZoomBtn.addEventListener('click', resetZoom);
+        
+        // 波段筛选功能
+        const filterWaveBtn = document.getElementById('filter-wave-btn');
+        const filterResultsEl = document.getElementById('filter-results');
+        const filterLoadingEl = document.getElementById('filter-loading');
+        const cancelFilterBtn = document.getElementById('cancel-filter-btn');
+        let isFilterCancelled = false;
+        
+        // 筛选低点抬高的币种
+        async function filterRisingLowPoints() {
+            filterResultsEl.innerHTML = '<p>正在准备分析...</p>';
+            filterLoadingEl.classList.remove('hidden');
+            filterWaveBtn.disabled = true;
+            cancelFilterBtn.classList.remove('hidden');
+            isFilterCancelled = false;
+            
+            const results = [];
+            const cryptoPairs = Object.keys(cryptoInfo);
+            const totalPairs = cryptoPairs.length;
+            let analyzedCount = 0;
+            
+            // 确保当前是1小时周期
+            const originalTimeframe = currentTimeframe;
+            const originalBinanceInterval = currentBinanceInterval;
+            const originalCryptoPair = currentCryptoPair;
+            
+            // 设置为1小时周期
+            currentTimeframe = '60';
+            currentBinanceInterval = '1h';
+            
+            try {
+                for (const pair of cryptoPairs) {
+                    if (isFilterCancelled) {
+                        filterResultsEl.innerHTML = '<p class="text-warning">筛选已取消</p>';
+                        return;
+                    }
+                    
+                    analyzedCount++;
+                    filterResultsEl.innerHTML = `<p>正在分析 ${cryptoInfo[pair].name} (${analyzedCount}/${totalPairs})...</p>`;
+                    
+                    try {
+                        currentCryptoPair = pair;
+                        const data = await fetchKlinesData();
+                        
+                        if (data && data.length > 0) {
+                            const points = identifyWavePoints(data);
+                            const lowPoints = points.filter(p => p.type === 'low');
+                            
+                            if (lowPoints.length >= 2) {
+                                const lastLow = lowPoints[lowPoints.length - 1];
+                                const prevLow = lowPoints[lowPoints.length - 2];
+                                
+                                if (lastLow.price > prevLow.price) {
+                                    // 低点抬高
+                                    const priceIncrease = ((lastLow.price - prevLow.price) / prevLow.price * 100).toFixed(2);
+                                    const timeDiff = Math.floor((lastLow.time - prevLow.time) / (1000 * 60 * 60)); // 小时数
+                                    
+                                    results.push({
+                                        pair: pair,
+                                        name: cryptoInfo[pair].name,
+                                        lastLowPrice: lastLow.price.toFixed(4),
+                                        prevLowPrice: prevLow.price.toFixed(4),
+                                        priceIncrease: priceIncrease,
+                                        timeDiff: timeDiff,
+                                        totalPoints: points.length,
+                                        lowPointsCount: lowPoints.length
+                                    });
+                                }
+                            }
+                        }
+                        
+                        // 添加小延迟避免API请求过于频繁
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        
+                    } catch (error) {
+                        console.error(`分析 ${pair} 时出错:`, error);
+                        continue;
+                    }
+                }
+                
+                // 按价格涨幅排序
+                results.sort((a, b) => parseFloat(b.priceIncrease) - parseFloat(a.priceIncrease));
+                
+                displayFilterResults(results);
+                
+            } catch (error) {
+                console.error('筛选过程中出错:', error);
+                filterResultsEl.innerHTML = '<p class="text-danger">筛选过程中出现错误，请稍后重试。</p>';
+            } finally {
+                // 恢复原始设置
+                currentTimeframe = originalTimeframe;
+                currentBinanceInterval = originalBinanceInterval;
+                currentCryptoPair = originalCryptoPair;
+                
+                filterLoadingEl.classList.add('hidden');
+                filterWaveBtn.disabled = false;
+                cancelFilterBtn.classList.add('hidden');
+            }
+        }
+        
+        // 显示筛选结果
+        function displayFilterResults(results) {
+            const totalAnalyzed = Object.keys(cryptoInfo).length;
+            
+            if (results.length === 0) {
+                filterResultsEl.innerHTML = `
+                    <div class="mb-3">
+                        <span class="text-warning font-medium">⚠ 分析完成</span>
+                        <span class="text-gray-400 text-sm ml-2">(共分析了 ${totalAnalyzed} 个币种)</span>
+                    </div>
+                    <p class="text-gray-400">没有找到符合条件的币种。最近两个波段低点没有呈现抬高趋势。</p>
+                `;
+                return;
+            }
+            
+            let html = `
+                <div class="mb-3">
+                    <span class="text-success font-medium">✓ 找到 ${results.length} 个币种</span>
+                    <span class="text-gray-400 text-sm ml-2">(从 ${totalAnalyzed} 个币种中筛选，最近两个波段低点呈现抬高趋势)</span>
+                </div>
+                <div class="space-y-3 max-h-64 overflow-y-auto">
+            `;
+            
+            results.forEach((result, index) => {
+                html += `
+                    <div class="bg-gray-800 rounded p-3 border border-gray-600">
+                        <div class="flex justify-between items-start mb-2">
+                            <div>
+                                <span class="font-medium text-primary">${result.name}</span>
+                                <span class="text-gray-400 text-sm ml-2">${result.pair}</span>
+                            </div>
+                            <span class="text-success font-medium">+${result.priceIncrease}%</span>
+                        </div>
+                        <div class="text-sm text-gray-300 space-y-1">
+                            <div>上一个低点: <span class="text-gray-400">$${result.prevLowPrice}</span></div>
+                            <div>最新低点: <span class="text-gray-400">$${result.lastLowPrice}</span></div>
+                            <div>时间间隔: <span class="text-gray-400">${result.timeDiff}小时</span></div>
+                            <div>总波段点: <span class="text-gray-400">${result.totalPoints}个</span></div>
+                        </div>
+                    </div>
+                `;
+            });
+            
+            html += '</div>';
+            filterResultsEl.innerHTML = html;
+        }
+        
+        // 获取K线数据（用于筛选功能）
+        async function fetchKlinesData() {
+            const endTime = Date.now();
+            const startTime = endTime - 7 * 24 * 60 * 60 * 1000; // 7天前的数据
+            
+            const url = `${binanceApiEndpoints[currentEndpointIndex]}/api/v3/klines?symbol=${currentCryptoPair}&interval=${currentBinanceInterval}&startTime=${startTime}&endTime=${endTime}&limit=500`;
+            
+            try {
+                const response = await axios.get(url, { timeout: 10000 });
+                
+                if (!response.data || !Array.isArray(response.data)) {
+                    throw new Error('返回数据格式错误');
+                }
+                
+                return response.data.map(kline => ({
+                    time: kline[0],
+                    open: parseFloat(kline[1]),
+                    high: parseFloat(kline[2]),
+                    low: parseFloat(kline[3]),
+                    close: parseFloat(kline[4]),
+                    volume: parseFloat(kline[5])
+                }));
+                
+            } catch (error) {
+                console.error(`获取 ${currentCryptoPair} K线数据失败:`, error);
+                throw error;
+            }
+        }
+        
+        // 筛选按钮事件
+        filterWaveBtn.addEventListener('click', filterRisingLowPoints);
+        
+        // 取消筛选按钮事件
+        cancelFilterBtn.addEventListener('click', () => {
+            isFilterCancelled = true;
+            cancelFilterBtn.classList.add('hidden');
+        });
+        
+        // 显示/隐藏错误详情
+        showErrorBtn.addEventListener('click', () => {
+            if (errorDetailsContainer.classList.contains('hidden')) {
+                errorDetailsContainer.textContent = lastErrorDetails;
+                errorDetailsContainer.classList.remove('hidden');
+                showErrorBtn.textContent = '隐藏错误详情';
+            } else {
+                errorDetailsContainer.classList.add('hidden');
+                showErrorBtn.textContent = '显示错误详情';
+            }
+        });
+        
+        // 时间周期按钮事件
+        timeframeBtns.forEach(btn => {
+            btn.addEventListener('click', async () => {
+                // 更新按钮样式
+                timeframeBtns.forEach(b => {
+                    b.classList.remove('bg-primary', 'text-white');
+                    b.classList.add('bg-gray-700', 'hover:bg-gray-600');
+                });
+                btn.classList.remove('bg-gray-700', 'hover:bg-gray-600');
+                btn.classList.add('bg-primary', 'text-white');
+                
+                // 更新时间周期（同时更新币安API的周期参数）
+                currentTimeframe = btn.getAttribute('data-timeframe');
+                currentBinanceInterval = btn.getAttribute('data-binance-interval');
+                
+                await reloadData();
+            });
+        });
+        
+        // 币种选择事件
+        cryptoSelect.addEventListener('change', async () => {
+            currentCryptoPair = cryptoSelect.value;
+            await reloadData();
+        });
+        
+        // 波段设置选择事件
+        waveSettingSelect.addEventListener('change', () => {
+            minCandlesBetweenWaves = parseInt(waveSettingSelect.value);
+            minCandlesDisplay.textContent = minCandlesBetweenWaves;
+            
+            // 重新识别波段点并绘制
+            if (klinesData.length > 0 && isChartValid()) {
+                wavePoints = identifyWavePoints(klinesData);
+                identifySupportResistanceLevels();
+                updateChartDisplay();
+                updateMarketInsight(wavePoints);
+                updateSupportResistanceUI();
+            }
+        });
+        
+        // 支撑位开关事件
+        supportToggle.addEventListener('change', toggleSupport);
+        
+        // 阻力位开关事件
+        resistanceToggle.addEventListener('change', toggleResistance);
+        
+        // 波段连接开关事件
+        waveConnectionToggle.addEventListener('change', toggleWaveConnection);
+        
+        // 窗口大小变化时重新调整图表大小
+        window.addEventListener('resize', () => {
+            if (isChartValid()) {
+                chart.resize();
+            }
+        });
+        
+        // 初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('页面加载完成，开始初始化数据...');
+            // 设置初始显示值
+            minCandlesDisplay.textContent = minCandlesBetweenWaves;
+            
+            // 额外检查ECharts是否加载
+            if (typeof echarts === 'undefined') {
+                console.error('ECharts库未加载，将尝试重新加载');
+                // 动态加载ECharts
+                const script = document.createElement('script');
+                script.src = 'https://cdn.jsdelivr.net/npm/echarts@5.4.3/dist/echarts.min.js';
+                script.onload = initChart;
+                script.onerror = () => {
+                    console.error('无法加载ECharts库');
+                    showChartFallback();
+                };
+                document.head.appendChild(script);
+            } else {
+                // ECharts已加载，直接初始化
+                initChart();
+            }
+        });
+    </script>
+</body>
+</html>
+    

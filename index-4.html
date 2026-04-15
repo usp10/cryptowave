@@ -1156,9 +1156,9 @@
             }
         }
         
-        // 识别支撑位和阻力位
+        // 识别支撑位和阻力位 - 修改为使用波段点对应的K线高低点
         function identifySupportResistanceLevels() {
-            if (!klinesData || klinesData.length === 0) {
+            if (!klinesData || klinesData.length === 0 || wavePoints.length < 2) {
                 supportLevels = [];
                 resistanceLevels = [];
                 return;
@@ -1168,66 +1168,26 @@
             supportLevels = [];
             resistanceLevels = [];
             
-            // 1. 使用波段分析中的高低点作为基础支撑阻力位
-            wavePoints.forEach(point => {
-                if (point.type === 'high') {
-                    resistanceLevels.push(point.price);
-                } else {
-                    supportLevels.push(point.price);
-                }
-            });
+            // 获取最近的两个波段点
+            const lastPoint = wavePoints[wavePoints.length - 1];
+            const prevPoint = wavePoints[wavePoints.length - 2];
             
-            // 2. 添加最近的高点和低点作为额外的支撑阻力位
-            const recentData = klinesData.slice(-30); // 最近30根K线
-            const recentHigh = Math.max(...recentData.map(item => item.high));
-            const recentLow = Math.min(...recentData.map(item => item.low));
+            // 获取这两个波段点对应的K线
+            const lastKline = klinesData[lastPoint.index];
+            const prevKline = klinesData[prevPoint.index];
             
-            resistanceLevels.push(recentHigh);
-            supportLevels.push(recentLow);
+            // 为每个波段点添加一个区间（该K线的低点到高点）
+            // 上一个波段点的区间
+            supportLevels.push(lastKline.low);
+            resistanceLevels.push(lastKline.high);
             
-            // 3. 计算价格密集区域作为支撑阻力位
-            const priceLevels = klinesData.flatMap(item => [item.open, item.close, item.high, item.low]);
-            const levelFrequency = {};
-            
-            // 计算价格波动范围，用于确定价格区间大小
-            const priceRange = Math.max(...priceLevels) - Math.min(...priceLevels);
-            const interval = Math.max(0.01, priceRange / 100); // 区间大小
-            
-            // 统计每个价格区间的出现频率
-            priceLevels.forEach(price => {
-                const roundedPrice = Math.round(price / interval) * interval;
-                const key = roundedPrice.toFixed(2);
-                levelFrequency[key] = (levelFrequency[key] || 0) + 1;
-            });
-            
-            // 将频率高的价格区间添加为支撑阻力位
-            const sortedLevels = Object.entries(levelFrequency)
-                .sort((a, b) => b[1] - a[1])
-                .slice(0, 5) // 取前5个最密集的价格区间
-                .map(entry => parseFloat(entry[0]));
-            
-            // 将这些价格区间添加到支撑阻力位（根据当前价格位置判断）
-            const currentPrice = klinesData[klinesData.length - 1].close;
-            sortedLevels.forEach(level => {
-                if (level < currentPrice * 0.98) { // 低于当前价格2%以上的作为支撑位
-                    supportLevels.push(level);
-                } else if (level > currentPrice * 1.02) { // 高于当前价格2%以上的作为阻力位
-                    resistanceLevels.push(level);
-                }
-            });
+            // 前一个波段点的区间
+            supportLevels.push(prevKline.low);
+            resistanceLevels.push(prevKline.high);
             
             // 去重并排序
             supportLevels = [...new Set(supportLevels)].sort((a, b) => a - b);
             resistanceLevels = [...new Set(resistanceLevels)].sort((a, b) => a - b);
-            
-            // 只保留最相关的几个支撑阻力位（最多5个）
-            const currentPriceIndex = supportLevels.findIndex(level => level >= currentPrice);
-            // 保留当前价格附近的支撑位
-            supportLevels = supportLevels.slice(Math.max(0, currentPriceIndex - 5), currentPriceIndex + 1);
-            
-            const resistancePriceIndex = resistanceLevels.findIndex(level => level >= currentPrice);
-            // 保留当前价格附近的阻力位
-            resistanceLevels = resistanceLevels.slice(resistancePriceIndex, resistancePriceIndex + 5);
         }
         
         // 更新支撑阻力位UI显示
@@ -1413,56 +1373,71 @@
                 }
             ];
             
-            // 添加支撑位和阻力位到图表（根据开关状态）
-            if (showSupport) {
-                // 添加支撑位
-                supportLevels.forEach((level, index) => {
+            // 添加支撑阻力区间到图表（根据开关状态）
+            if (showSupport && showResistance && supportLevels.length === resistanceLevels.length) {
+                // 获取当前价格
+                const currentPrice = klinesData[klinesData.length - 1].close;
+                
+                // 添加支撑阻力区间
+                supportLevels.forEach((supportLevel, index) => {
+                    const resistanceLevel = resistanceLevels[index];
+                    
+                    // 根据当前价格与区间的关系决定颜色
+                    // 如果价格大于区间，则区间是支撑，用红色
+                    // 如果价格小于区间，则区间是阻力，用绿色
+                    const isSupport = currentPrice > resistanceLevel;
+                    const fillColor = isSupport ? 'rgba(245,63,63,0.009)' : 'rgba(0,181,120,0.009)';
+                    const strokeColor = isSupport ? 'rgba(245,63,63,0.009)' : 'rgba(0,181,120,0.009)';
+                    const typeText = isSupport ? '支撑' : '阻力';
+                    
                     series.push({
-                        name: `支撑位 ${index + 1}`,
-                        type: 'line',
-                        data: klinesData.map(item => [item.time, level]),
-                        symbol: 'none',
-                        lineStyle: {
-                            width: 1.5,
-                            color: '#00B578',
-                            type: 'dashed'
+                        name: `${typeText}区间 ${index + 1}`,
+                        type: 'custom',
+                        renderItem: function(params, api) {
+                            const start = api.coord([api.value(0), api.value(1)]);
+                            const end = api.coord([api.value(0), api.value(2)]);
+                            const height = end[1] - start[1];
+                            
+                            // 计算区间中心位置
+                            const centerY = start[1] + height / 2;
+                            const labelX = params.coordSys.x + 10;
+                            
+                            return {
+                                type: 'group',
+                                children: [
+                                    {
+                                        type: 'rect',
+                                        shape: {
+                                            x: params.coordSys.x,
+                                            y: start[1],
+                                            width: params.coordSys.width,
+                                            height: height
+                                        },
+                                        style: {
+                                            fill: fillColor,
+                                            stroke: strokeColor,
+                                            lineWidth: 1
+                                        }
+                                    },
+                                    {
+                                        type: 'text',
+                                        shape: {
+                                            x: labelX,
+                                            y: centerY,
+                                            text: `${typeText}区间`,
+                                            fontSize: 12,
+                                            fill: isSupport ? '#F53F3F' : '#00B578',
+                                            fontWeight: 'bold'
+                                        }
+                                    }
+                                ]
+                            };
                         },
-                        label: {
-                            show: true,
-                            position: 'left',
-                            formatter: level.toFixed(2),
-                            color: '#00B578',
-                            fontSize: 11
-                        },
+                        data: klinesData.map(item => [item.time, supportLevel, resistanceLevel]),
                         tooltip: {
-                            formatter: `支撑位: ${level.toFixed(2)}`
-                        }
-                    });
-                });
-            }
-            
-            if (showResistance) {
-                // 添加阻力位
-                resistanceLevels.forEach((level, index) => {
-                    series.push({
-                        name: `阻力位 ${index + 1}`,
-                        type: 'line',
-                        data: klinesData.map(item => [item.time, level]),
-                        symbol: 'none',
-                        lineStyle: {
-                            width: 1.5,
-                            color: '#F53F3F',
-                            type: 'dashed'
-                        },
-                        label: {
-                            show: true,
-                            position: 'left',
-                            formatter: level.toFixed(2),
-                            color: '#F53F3F',
-                            fontSize: 11
-                        },
-                        tooltip: {
-                            formatter: `阻力位: ${level.toFixed(2)}`
+                            formatter: function(params) {
+                                return `${typeText}区间 ${index + 1}: ${supportLevel.toFixed(2)} - ${resistanceLevel.toFixed(2)}`;
+                            }
                         }
                     });
                 });
@@ -1504,12 +1479,17 @@
                     legend: {
                         data: [`${getCurrentCryptoInfo().symbol} K线`, 
                                ...(showWaveConnection ? ['波段线'] : []),
-                               ...(showSupport ? ['支撑位'] : []),
-                               ...(showResistance ? ['阻力位'] : [])],
+                               ...(showSupport && showResistance ? ['绿色: 阻力区间 | 红色: 支撑区间'] : [])],
                         textStyle: {
                             color: '#E2E8F0'
                         },
-                        top: 10
+                        top: 10,
+                        formatter: function(name) {
+                            if (name === '绿色: 阻力区间 | 红色: 支撑区间') {
+                                return name;
+                            }
+                            return name;
+                        }
                     },
                     grid: {
                         left: '10%',

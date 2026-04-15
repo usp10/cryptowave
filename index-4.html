@@ -299,6 +299,7 @@
                     <div class="flex items-center space-x-2">
                         <span class="text-gray-400">周期:</span>
                         <div class="flex flex-wrap gap-2">
+                            <button class="timeframe-btn px-3 py-1 rounded text-sm bg-gray-700 hover:bg-gray-600 transition-colors" data-timeframe="15" data-binance-interval="15m">15分钟</button>
                             <button class="timeframe-btn px-3 py-1 rounded text-sm bg-primary text-white" data-timeframe="60" data-binance-interval="1h">1小时</button>
                             <button class="timeframe-btn px-3 py-1 rounded text-sm bg-gray-700 hover:bg-gray-600 transition-colors" data-timeframe="240" data-binance-interval="4h">4小时</button>
                             <button class="timeframe-btn px-3 py-1 rounded text-sm bg-gray-700 hover:bg-gray-600 transition-colors" data-timeframe="D" data-binance-interval="1d">1天</button>
@@ -1161,6 +1162,7 @@
             if (!klinesData || klinesData.length === 0 || wavePoints.length < 2) {
                 supportLevels = [];
                 resistanceLevels = [];
+                window.supportResistanceInfo = { support: null, resistance: null };
                 return;
             }
             
@@ -1168,26 +1170,45 @@
             supportLevels = [];
             resistanceLevels = [];
             
-            // 获取最近的两个波段点
-            const lastPoint = wavePoints[wavePoints.length - 1];
-            const prevPoint = wavePoints[wavePoints.length - 2];
+            // 获取当前价格
+            const currentPrice = klinesData[klinesData.length - 1].close;
             
-            // 获取这两个波段点对应的K线
-            const lastKline = klinesData[lastPoint.index];
-            const prevKline = klinesData[prevPoint.index];
+            // 存储最近的支撑和阻力区间
+            let closestSupport = null;
+            let closestResistance = null;
+            let minSupportDistance = Infinity;
+            let minResistanceDistance = Infinity;
             
-            // 为每个波段点添加一个区间（该K线的低点到高点）
-            // 上一个波段点的区间
-            supportLevels.push(lastKline.low);
-            resistanceLevels.push(lastKline.high);
+            // 遍历所有波段点，找出最近的支撑和阻力区间
+            for (let i = 0; i < wavePoints.length; i++) {
+                const point = wavePoints[i];
+                const kline = klinesData[point.index];
+                const low = kline.low;
+                const high = kline.high;
+                
+                // 检查是否为支撑区间（区间在当前价格下方）
+                if (high < currentPrice) {
+                    const distance = currentPrice - high;
+                    if (distance < minSupportDistance) {
+                        minSupportDistance = distance;
+                        closestSupport = { low, high, time: kline.time, index: point.index };
+                    }
+                }
+                // 检查是否为阻力区间（区间在当前价格上方）
+                else if (low > currentPrice) {
+                    const distance = low - currentPrice;
+                    if (distance < minResistanceDistance) {
+                        minResistanceDistance = distance;
+                        closestResistance = { low, high, time: kline.time, index: point.index };
+                    }
+                }
+            }
             
-            // 前一个波段点的区间
-            supportLevels.push(prevKline.low);
-            resistanceLevels.push(prevKline.high);
-            
-            // 去重并排序
-            supportLevels = [...new Set(supportLevels)].sort((a, b) => a - b);
-            resistanceLevels = [...new Set(resistanceLevels)].sort((a, b) => a - b);
+            // 存储支撑和阻力区间信息
+            window.supportResistanceInfo = {
+                support: closestSupport,
+                resistance: closestResistance
+            };
         }
         
         // 更新支撑阻力位UI显示
@@ -1374,73 +1395,181 @@
             ];
             
             // 添加支撑阻力区间到图表（根据开关状态）
-            if (showSupport && showResistance && supportLevels.length === resistanceLevels.length) {
+            if (showSupport && showResistance) {
                 // 获取当前价格
                 const currentPrice = klinesData[klinesData.length - 1].close;
                 
-                // 添加支撑阻力区间
-                supportLevels.forEach((supportLevel, index) => {
-                    const resistanceLevel = resistanceLevels[index];
+                // 存储最近的支撑和阻力区间
+                let closestSupport = null;
+                let closestResistance = null;
+                let minSupportDistance = Infinity;
+                let minResistanceDistance = Infinity;
+                
+                // 首先在最近的20个波段点中寻找
+                const recentWavePoints = wavePoints.slice(-20);
+                
+                // 遍历最近的20个波段点，找出最近的支撑和阻力区间
+                for (let i = 0; i < recentWavePoints.length; i++) {
+                    const point = recentWavePoints[i];
+                    const kline = klinesData[point.index];
+                    const low = kline.low;
+                    const high = kline.high;
                     
-                    // 根据当前价格与区间的关系决定颜色
-                    // 如果价格大于区间，则区间是支撑，用红色
-                    // 如果价格小于区间，则区间是阻力，用绿色
-                    const isSupport = currentPrice > resistanceLevel;
-                    const fillColor = isSupport ? 'rgba(245,63,63,0.009)' : 'rgba(0,181,120,0.009)';
-                    const strokeColor = isSupport ? 'rgba(245,63,63,0.009)' : 'rgba(0,181,120,0.009)';
-                    const typeText = isSupport ? '支撑' : '阻力';
+                    // 检查是否为支撑区间（区间在当前价格下方）
+                    if (high < currentPrice) {
+                        const distance = currentPrice - high;
+                        if (distance < minSupportDistance) {
+                            minSupportDistance = distance;
+                            closestSupport = { low, high, time: kline.time, index: point.index };
+                        }
+                    }
+                    // 检查是否为阻力区间（区间在当前价格上方）
+                    else if (low > currentPrice) {
+                        const distance = low - currentPrice;
+                        if (distance < minResistanceDistance) {
+                            minResistanceDistance = distance;
+                            closestResistance = { low, high, time: kline.time, index: point.index };
+                        }
+                    }
+                }
+                
+                // 如果在最近20个点中没有找到支撑区间，则继续往前找所有点
+                if (!closestSupport) {
+                    for (let i = wavePoints.length - 1; i >= 0; i--) {
+                        const point = wavePoints[i];
+                        const kline = klinesData[point.index];
+                        const low = kline.low;
+                        const high = kline.high;
+                        
+                        if (high < currentPrice) {
+                            const distance = currentPrice - high;
+                            if (distance < minSupportDistance) {
+                                minSupportDistance = distance;
+                                closestSupport = { low, high, time: kline.time, index: point.index };
+                            }
+                        }
+                    }
+                }
+                
+                // 如果在最近20个点中没有找到阻力区间，则继续往前找所有点
+                if (!closestResistance) {
+                    for (let i = wavePoints.length - 1; i >= 0; i--) {
+                        const point = wavePoints[i];
+                        const kline = klinesData[point.index];
+                        const low = kline.low;
+                        const high = kline.high;
+                        
+                        if (low > currentPrice) {
+                            const distance = low - currentPrice;
+                            if (distance < minResistanceDistance) {
+                                minResistanceDistance = distance;
+                                closestResistance = { low, high, time: kline.time, index: point.index };
+                            }
+                        }
+                    }
+                }
+                
+                // 如果仍然没有找到支撑区间，使用历史最低点
+                if (!closestSupport && klinesData.length > 0) {
+                    const allLows = klinesData.map(item => item.low);
+                    const lowestLow = Math.min(...allLows);
+                    const lowestIndex = allLows.indexOf(lowestLow);
+                    const lowestKline = klinesData[lowestIndex];
+                    closestSupport = { 
+                        low: lowestKline.low, 
+                        high: lowestKline.high, 
+                        time: lowestKline.time, 
+                        index: lowestIndex 
+                    };
+                }
+                
+                // 如果仍然没有找到阻力区间，使用历史最高点
+                if (!closestResistance && klinesData.length > 0) {
+                    const allHighs = klinesData.map(item => item.high);
+                    const highestHigh = Math.max(...allHighs);
+                    const highestIndex = allHighs.indexOf(highestHigh);
+                    const highestKline = klinesData[highestIndex];
+                    closestResistance = { 
+                        low: highestKline.low, 
+                        high: highestKline.high, 
+                        time: highestKline.time, 
+                        index: highestIndex 
+                    };
+                }
+                
+                // 添加支撑区间
+                if (closestSupport) {
+                    const fillColor = 'rgba(245, 63, 63, 0.009)';
+                    const strokeColor = 'rgba(245, 63, 63, 0.009)';
                     
                     series.push({
-                        name: `${typeText}区间 ${index + 1}`,
+                        name: '支撑区间',
                         type: 'custom',
                         renderItem: function(params, api) {
                             const start = api.coord([api.value(0), api.value(1)]);
                             const end = api.coord([api.value(0), api.value(2)]);
                             const height = end[1] - start[1];
                             
-                            // 计算区间中心位置
-                            const centerY = start[1] + height / 2;
-                            const labelX = params.coordSys.x + 10;
-                            
                             return {
-                                type: 'group',
-                                children: [
-                                    {
-                                        type: 'rect',
-                                        shape: {
-                                            x: params.coordSys.x,
-                                            y: start[1],
-                                            width: params.coordSys.width,
-                                            height: height
-                                        },
-                                        style: {
-                                            fill: fillColor,
-                                            stroke: strokeColor,
-                                            lineWidth: 1
-                                        }
-                                    },
-                                    {
-                                        type: 'text',
-                                        shape: {
-                                            x: labelX,
-                                            y: centerY,
-                                            text: `${typeText}区间`,
-                                            fontSize: 12,
-                                            fill: isSupport ? '#F53F3F' : '#00B578',
-                                            fontWeight: 'bold'
-                                        }
-                                    }
-                                ]
+                                type: 'rect',
+                                shape: {
+                                    x: params.coordSys.x,
+                                    y: start[1],
+                                    width: params.coordSys.width,
+                                    height: height
+                                },
+                                style: {
+                                    fill: fillColor,
+                                    stroke: strokeColor,
+                                    lineWidth: 1
+                                }
                             };
                         },
-                        data: klinesData.map(item => [item.time, supportLevel, resistanceLevel]),
+                        data: klinesData.map(item => [item.time, closestSupport.low, closestSupport.high]),
                         tooltip: {
                             formatter: function(params) {
-                                return `${typeText}区间 ${index + 1}: ${supportLevel.toFixed(2)} - ${resistanceLevel.toFixed(2)}`;
+                                return `支撑区间: ${closestSupport.low.toFixed(2)} - ${closestSupport.high.toFixed(2)}`;
                             }
                         }
                     });
-                });
+                }
+                
+                // 添加阻力区间
+                if (closestResistance) {
+                    const fillColor = 'rgba(0, 181, 120, 0.009)';
+                    const strokeColor = 'rgba(0, 181, 120, 0.009)';
+                    
+                    series.push({
+                        name: '阻力区间',
+                        type: 'custom',
+                        renderItem: function(params, api) {
+                            const start = api.coord([api.value(0), api.value(1)]);
+                            const end = api.coord([api.value(0), api.value(2)]);
+                            const height = end[1] - start[1];
+                            
+                            return {
+                                type: 'rect',
+                                shape: {
+                                    x: params.coordSys.x,
+                                    y: start[1],
+                                    width: params.coordSys.width,
+                                    height: height
+                                },
+                                style: {
+                                    fill: fillColor,
+                                    stroke: strokeColor,
+                                    lineWidth: 1
+                                }
+                            };
+                        },
+                        data: klinesData.map(item => [item.time, closestResistance.low, closestResistance.high]),
+                        tooltip: {
+                            formatter: function(params) {
+                                return `阻力区间: ${closestResistance.low.toFixed(2)} - ${closestResistance.high.toFixed(2)}`;
+                            }
+                        }
+                    });
+                }
             }
             
             return series;

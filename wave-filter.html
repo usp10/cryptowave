@@ -1,0 +1,774 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>加密货币波段筛选器 - 高低点波段检测</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.0.0/css/all.min.css">
+    <script src="https://cdn.jsdelivr.net/npm/axios/dist/axios.min.js"></script>
+    <style>
+        :root {
+            --primary: #3b82f6;
+            --success: #10b981;
+            --warning: #f59e0b;
+            --danger: #ef4444;
+            --dark: #111827;
+            --dark-light: #1f2937;
+        }
+        
+        body {
+            background: linear-gradient(135deg, var(--dark) 0%, #0f172a 100%);
+            color: #e5e7eb;
+            min-height: 100vh;
+        }
+        
+        .glass {
+            background: rgba(31, 41, 55, 0.8);
+            backdrop-filter: blur(10px);
+            border: 1px solid rgba(255, 255, 255, 0.1);
+        }
+        
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+        
+        .crypto-card {
+            transition: all 0.3s ease;
+            border: 1px solid rgba(59, 130, 246, 0.2);
+        }
+        
+        .crypto-card:hover {
+            border-color: var(--primary);
+            transform: translateY(-2px);
+            box-shadow: 0 10px 25px rgba(59, 130, 246, 0.2);
+        }
+        
+        .stat-card {
+            transition: all 0.3s ease;
+        }
+        
+        .stat-card.active-increase {
+            border-color: var(--success);
+            box-shadow: 0 0 20px rgba(16, 185, 129, 0.2);
+        }
+        
+        .stat-card.active-decrease {
+            border-color: var(--danger);
+            box-shadow: 0 0 20px rgba(239, 68, 68, 0.2);
+        }
+        
+        .animate-pulse-slow {
+            animation: pulse 2s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+        }
+        
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.5; }
+        }
+        
+        .loading-spinner {
+            border: 3px solid rgba(59, 130, 246, 0.3);
+            border-radius: 50%;
+            border-top: 3px solid var(--primary);
+            width: 40px;
+            height: 40px;
+            animation: spin 1s linear infinite;
+        }
+        
+        @keyframes spin {
+            0% { transform: rotate(0deg); }
+            100% { transform: rotate(360deg); }
+        }
+    </style>
+</head>
+<body>
+    <div class="container mx-auto px-4 py-8">
+        <!-- 头部标题 -->
+        <div class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-white mb-4">
+                <i class="fas fa-chart-line text-primary mr-3"></i>
+                加密货币波段筛选器
+            </h1>
+            <p class="text-gray-400 text-lg">智能识别近期波段高低点变化趋势</p>
+        </div>
+
+        <!-- 控制面板 -->
+        <div class="glass rounded-xl p-6 mb-8">
+            <div class="flex flex-col md:flex-row items-center justify-between gap-4">
+                <div class="flex items-center space-x-4">
+                    <div class="text-sm text-gray-400">
+                        <i class="fas fa-coins mr-2"></i>
+                        支持币种: <span id="total-cryptos" class="text-white font-medium">50</span> 个
+                    </div>
+                    <div class="text-sm text-gray-400">
+                            <i class="fas fa-clock mr-2"></i>
+                            分析周期: <span class="text-white font-medium">1小时</span>
+                        </div>
+                    </div>
+                    
+                    <div class="flex items-center space-x-4">
+                        <div class="text-sm text-gray-400">
+                            <i class="fas fa-wave-square mr-2"></i>
+                            筛选模式:
+                        </div>
+                        <div class="flex rounded-lg bg-gray-700 p-1.5 shadow-lg border border-gray-600">
+                            <button id="low-point-mode" class="flex items-center px-6 py-2.5 rounded-md font-medium bg-primary text-white transition-all duration-300 transform hover:scale-105">
+                                <i class="fas fa-arrow-up mr-2"></i>
+                                <span>低点抬高</span>
+                            </button>
+                            <button id="high-point-mode" class="flex items-center px-6 py-2.5 rounded-md font-medium text-gray-300 hover:bg-gray-600 transition-all duration-300">
+                                <i class="fas fa-arrow-down mr-2"></i>
+                                <span>高点降低</span>
+                            </button>
+                        </div>
+                </div>
+                
+                <div class="flex space-x-3">
+                    <button id="start-filter" class="bg-primary hover:bg-blue-600 px-6 py-3 rounded-lg font-medium transition-all duration-200 flex items-center space-x-2">
+                        <i class="fas fa-filter"></i>
+                        <span>开始筛选</span>
+                    </button>
+                    <button id="cancel-filter" class="bg-gray-600 hover:bg-gray-500 px-6 py-3 rounded-lg font-medium transition-all duration-200 flex items-center space-x-2 hidden">
+                        <i class="fas fa-stop"></i>
+                        <span>取消</span>
+                    </button>
+                </div>
+            </div>
+            
+            <!-- 进度条 -->
+            <div id="progress-container" class="mt-6 hidden">
+                <div class="flex justify-between items-center mb-2">
+                    <span id="progress-text" class="text-sm text-gray-400">准备分析...</span>
+                    <span id="progress-percent" class="text-sm text-primary">0%</span>
+                </div>
+                <div class="w-full bg-gray-700 rounded-full h-2">
+                    <div id="progress-bar" class="progress-bar bg-primary h-2 rounded-full" style="width: 0%"></div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 统计信息 -->
+        <div class="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
+            <div class="glass rounded-xl p-6 text-center">
+                <div class="text-3xl font-bold text-primary mb-2" id="found-count">0</div>
+                <div class="text-gray-400">符合条件的币种</div>
+            </div>
+            <div class="glass rounded-xl p-6 text-center stat-card transition-all duration-500" id="avg-stat-card">
+                <div class="text-3xl font-bold mb-2" id="avg-value">0%</div>
+                <div class="text-gray-400" id="avg-label">平均涨幅</div>
+            </div>
+            <div class="glass rounded-xl p-6 text-center stat-card transition-all duration-500" id="max-stat-card">
+                <div class="text-3xl font-bold mb-2" id="max-value">0%</div>
+                <div class="text-gray-400" id="max-label">最大涨幅</div>
+            </div>
+        </div>
+
+        <!-- 筛选结果 -->
+        <div class="glass rounded-xl p-6">
+            <h2 class="text-xl font-bold text-white mb-6 flex items-center">
+                <i class="fas fa-trophy text-warning mr-3"></i>
+                筛选结果
+            </h2>
+            
+            <div id="loading-state" class="text-center py-12 hidden">
+                <div class="loading-spinner mx-auto mb-4"></div>
+                <p class="text-gray-400">正在分析币种数据...</p>
+            </div>
+            
+            <div id="empty-state" class="text-center py-12">
+                <i class="fas fa-search text-gray-500 text-5xl mb-4"></i>
+                <p class="text-gray-400 text-lg">点击"开始筛选"按钮开始分析</p>
+                <p class="text-gray-500 text-sm mt-2">系统将自动分析50个主流币种的波段走势</p>
+            </div>
+            
+            <div id="results-container" class="space-y-4">
+                <!-- 结果将在这里显示 -->
+            </div>
+        </div>
+
+        <!-- 底部说明 -->
+        <div class="mt-8 text-center text-gray-500 text-sm">
+            <p><i class="fas fa-info-circle mr-2"></i>基于1小时K线数据，识别最近两个波段低点抬高的币种</p>
+            <p class="mt-1"><i class="fas fa-search mr-2"></i>波段识别：当前K线最低价是前后16根中的最低</p>
+            <p class="mt-2">数据来源于币安API，分析结果仅供参考，不构成投资建议</p>
+            <div class="mt-2">
+                <a href="supported-cryptos.html" class="text-blue-400 hover:text-blue-300 text-sm">
+                    <i class="fas fa-list mr-1"></i>查看支持的完整币种列表
+                </a>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // 币种信息映射表
+        const cryptoInfo = {
+            'BTCUSDT': { name: '比特币', symbol: 'BTC' },
+            'ETHUSDT': { name: '以太坊', symbol: 'ETH' },
+            'BNBUSDT': { name: '币安币', symbol: 'BNB' },
+            'SOLUSDT': { name: '索拉纳', symbol: 'SOL' },
+            'ADAUSDT': { name: '卡尔达诺', symbol: 'ADA' },
+            'XRPUSDT': { name: '瑞波币', symbol: 'XRP' },
+            'DOGEUSDT': { name: '狗狗币', symbol: 'DOGE' },
+            'DOTUSDT': { name: '波卡', symbol: 'DOT' },
+            'LTCUSDT': { name: '莱特币', symbol: 'LTC' },
+            'AVAXUSDT': { name: 'Avalanche', symbol: 'AVAX' },
+            'MATICUSDT': { name: 'Polygon', symbol: 'MATIC' },
+            'LINKUSDT': { name: 'Chainlink', symbol: 'LINK' },
+            'UNIUSDT': { name: 'Uniswap', symbol: 'UNI' },
+            'ATOMUSDT': { name: 'Cosmos', symbol: 'ATOM' },
+            'ETCUSDT': { name: '以太坊经典', symbol: 'ETC' },
+            'XLMUSDT': { name: '恒星币', symbol: 'XLM' },
+            'VETUSDT': { name: '唯链', symbol: 'VET' },
+            'FILUSDT': { name: 'Filecoin', symbol: 'FIL' },
+            'TRXUSDT': { name: '波场', symbol: 'TRX' },
+            'EGLDUSDT': { name: 'Elrond', symbol: 'EGLD' },
+            'XTZUSDT': { name: 'Tezos', symbol: 'XTZ' },
+            'ALGOUSDT': { name: 'Algorand', symbol: 'ALGO' },
+            'NEARUSDT': { name: 'NEAR Protocol', symbol: 'NEAR' },
+            'ICPUSDT': { name: 'Internet Computer', symbol: 'ICP' },
+            'APTUSDT': { name: 'Aptos', symbol: 'APT' },
+            'OPUSDT': { name: 'Optimism', symbol: 'OP' },
+            'ARBUSDT': { name: 'Arbitrum', symbol: 'ARB' },
+            'INJUSDT': { name: 'Injective', symbol: 'INJ' },
+            'IMXUSDT': { name: 'Immutable', symbol: 'IMX' },
+            'MANAUSDT': { name: 'Decentraland', symbol: 'MANA' },
+            'SANDUSDT': { name: 'The Sandbox', symbol: 'SAND' },
+            'AXSUSDT': { name: 'Axie Infinity', symbol: 'AXS' },
+            'THETAUSDT': { name: 'Theta Network', symbol: 'THETA' },
+            'FTMUSDT': { name: 'Fantom', symbol: 'FTM' },
+            'HBARUSDT': { name: 'Hedera', symbol: 'HBAR' },
+            'ONEUSDT': { name: 'Harmony', symbol: 'ONE' },
+            'ICXUSDT': { name: 'ICON', symbol: 'ICX' },
+            'QTUMUSDT': { name: 'Qtum', symbol: 'QTUM' },
+            'ZECUSDT': { name: 'Zcash', symbol: 'ZEC' },
+            'XMRUSDT': { name: '门罗币', symbol: 'XMR' },
+            'DASHUSDT': { name: '达世币', symbol: 'DASH' },
+            'CRVUSDT': { name: 'Curve', symbol: 'CRV' },
+            'SUSHIUSDT': { name: 'SushiSwap', symbol: 'SUSHI' },
+            'AAVEUSDT': { name: 'Aave', symbol: 'AAVE' },
+            'MKRUSDT': { name: 'Maker', symbol: 'MKR' },
+            'COMPUSDT': { name: 'Compound', symbol: 'COMP' },
+            'YFIUSDT': { name: 'Yearn.finance', symbol: 'YFI' },
+            'BATUSDT': { name: 'Basic Attention Token', symbol: 'BAT' },
+            'ENJUSDT': { name: 'Enjin Coin', symbol: 'ENJ' },
+            'CHZUSDT': { name: 'Chiliz', symbol: 'CHZ' },
+            'FLOWUSDT': { name: 'Flow', symbol: 'FLOW' },
+            'KLAYUSDT': { name: 'Klaytn', symbol: 'KLAY' }
+        };
+
+        // API端点
+        const binanceApiEndpoints = [
+            'https://api.binance.com',
+            'https://api1.binance.com',
+            'https://api2.binance.com',
+            'https://api3.binance.com'
+        ];
+        let currentEndpointIndex = 0;
+
+        // DOM元素
+        const startFilterBtn = document.getElementById('start-filter');
+        const cancelFilterBtn = document.getElementById('cancel-filter');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const progressPercent = document.getElementById('progress-percent');
+        const loadingState = document.getElementById('loading-state');
+        const emptyState = document.getElementById('empty-state');
+        const resultsContainer = document.getElementById('results-container');
+        const foundCountEl = document.getElementById('found-count');
+        const avgValueEl = document.getElementById('avg-value');
+        const maxValueEl = document.getElementById('max-value');
+        const avgLabelEl = document.getElementById('avg-label');
+        const maxLabelEl = document.getElementById('max-label');
+        const avgStatCard = document.getElementById('avg-stat-card');
+        const maxStatCard = document.getElementById('max-stat-card');
+
+        let isFilterCancelled = false;
+
+        // 高低点判断函数 - 优化算法
+        function isHighPoint(data, index, minDistance = 16) {
+            if (index < minDistance || index >= data.length - minDistance) return false;
+            
+            const currentHigh = data[index].high;
+            for (let i = 1; i <= minDistance; i++) {
+                    // 当前K线的最高价是前后16根中的最高
+                    if (currentHigh < data[index - i].high || currentHigh < data[index + i].high) {
+                        return false;
+                    }
+                }
+            return true;
+        }
+
+        function isLowPoint(data, index, minDistance = 16) {
+            if (index < minDistance || index >= data.length - minDistance) return false;
+            
+            const currentLow = data[index].low;
+            for (let i = 1; i <= minDistance; i++) {
+                    // 当前K线的最低价是前后16根中的最低
+                    if (currentLow > data[index - i].low || currentLow > data[index + i].low) {
+                        return false;
+                    }
+                }
+            return true;
+        }
+
+        // 识别波段点
+        function identifyWavePoints(data) {
+            const points = [];
+            const minDistance = 16;
+            
+            for (let i = minDistance; i < data.length - minDistance; i++) {
+                if (isHighPoint(data, i, minDistance)) {
+                    points.push({
+                        index: i,
+                        time: data[i].time,
+                        price: data[i].high,
+                        type: 'high'
+                    });
+                } else if (isLowPoint(data, i, minDistance)) {
+                    points.push({
+                        index: i,
+                        time: data[i].time,
+                        price: data[i].low,
+                        type: 'low'
+                    });
+                }
+            }
+            
+            return points;
+        }
+
+        // 获取K线数据
+        async function fetchKlinesData(symbol) {
+            const endTime = Date.now();
+            const startTime = endTime - 7 * 24 * 60 * 60 * 1000; // 7天前的数据
+            
+            const url = `${binanceApiEndpoints[currentEndpointIndex]}/api/v3/klines?symbol=${symbol}&interval=1h&startTime=${startTime}&endTime=${endTime}&limit=500`;
+            
+            try {
+                const response = await axios.get(url, { timeout: 10000 });
+                
+                if (!response.data || !Array.isArray(response.data)) {
+                    throw new Error('返回数据格式错误');
+                }
+                
+                return response.data.map(kline => ({
+                    time: kline[0],
+                    open: parseFloat(kline[1]),
+                    high: parseFloat(kline[2]),
+                    low: parseFloat(kline[3]),
+                    close: parseFloat(kline[4]),
+                    volume: parseFloat(kline[5])
+                }));
+                
+            } catch (error) {
+                console.error(`获取 ${symbol} K线数据失败:`, error);
+                throw error;
+            }
+        }
+
+        // 根据筛选模式筛选币种
+        function filterByMode() {
+            const isLowPointMode = document.getElementById('low-point-mode').classList.contains('bg-primary');
+            if (isLowPointMode) {
+                filterRisingLowPoints();
+            } else {
+                filterFallingHighPoints();
+            }
+        }
+
+        // 筛选低点抬高的币种
+        async function filterRisingLowPoints() {
+            startFilterBtn.disabled = true;
+            cancelFilterBtn.classList.remove('hidden');
+            emptyState.classList.add('hidden');
+            loadingState.classList.remove('hidden');
+            progressContainer.classList.remove('hidden');
+            resultsContainer.innerHTML = '';
+            isFilterCancelled = false;
+
+            const results = [];
+            const cryptoPairs = Object.keys(cryptoInfo);
+            const totalPairs = cryptoPairs.length;
+            let analyzedCount = 0;
+
+            try {
+                for (const pair of cryptoPairs) {
+                    if (isFilterCancelled) {
+                        break;
+                    }
+
+                    analyzedCount++;
+                    const progress = Math.round((analyzedCount / totalPairs) * 100);
+                    progressBar.style.width = `${progress}%`;
+                    progressPercent.textContent = `${progress}%`;
+                    progressText.textContent = `正在分析 ${cryptoInfo[pair].name}...`;
+
+                    try {
+                        const data = await fetchKlinesData(pair);
+                        
+                        if (data && data.length > 0) {
+                            const points = identifyWavePoints(data);
+                            const lowPoints = points.filter(p => p.type === 'low');
+                            
+                            if (lowPoints.length >= 2) {
+                                const lastLow = lowPoints[lowPoints.length - 1];
+                                const prevLow = lowPoints[lowPoints.length - 2];
+                                
+                                // 获取最新价格
+                                const latestKline = data[data.length - 1];
+                                const currentPrice = latestKline.close;
+                                 
+                                // 判断条件：低点抬高 且 当前价格大于最后一个低点
+                                if (lastLow.price > prevLow.price && currentPrice > lastLow.price) {
+                                    // 低点抬高且价格维持在最后一个低点之上
+                                    const priceIncrease = ((lastLow.price - prevLow.price) / prevLow.price * 100);
+                                    const timeDiff = Math.floor((lastLow.time - prevLow.time) / (1000 * 60 * 60));
+                                    const currentAboveLow = ((currentPrice - lastLow.price) / lastLow.price * 100);
+                                     
+                                    results.push({
+                                        pair: pair,
+                                        name: cryptoInfo[pair].name,
+                                        lastLowPrice: lastLow.price,
+                                        prevLowPrice: prevLow.price,
+                                        priceIncrease: priceIncrease,
+                                        currentPrice: currentPrice,
+                                        currentAboveLow: currentAboveLow,
+                                        timeDiff: timeDiff,
+                                        totalPoints: points.length,
+                                        lowPointsCount: lowPoints.length,
+                                        filterType: 'low'
+                                    });
+                                }
+                            }
+                        }
+                        
+                        // 添加小延迟避免API请求过于频繁
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        
+                    } catch (error) {
+                        console.error(`分析 ${pair} 时出错:`, error);
+                        continue;
+                    }
+                }
+
+                // 按价格涨幅排序
+                results.sort((a, b) => b.priceIncrease - a.priceIncrease);
+                
+                // 更新统计信息
+                updateStatistics(results, 'low');
+                
+                // 显示结果
+                displayResults(results);
+                
+            } catch (error) {
+                console.error('筛选过程中出错:', error);
+                resultsContainer.innerHTML = '<div class="text-center text-danger py-8">筛选过程中出现错误，请稍后重试。</div>';
+            } finally {
+                startFilterBtn.disabled = false;
+                cancelFilterBtn.classList.add('hidden');
+                loadingState.classList.add('hidden');
+                
+                if (isFilterCancelled) {
+                    progressText.textContent = '筛选已取消';
+                    progressPercent.textContent = '0%';
+                    progressBar.style.width = '0%';
+                }
+            }
+        }
+
+        // 更新统计信息
+        function updateStatistics(results, filterType) {
+            foundCountEl.textContent = results.length;
+            
+            if (results.length === 0) {
+                avgValueEl.textContent = '0%';
+                maxValueEl.textContent = '0%';
+                
+                // 重置样式
+                avgStatCard.classList.remove('active-increase', 'active-decrease');
+                maxStatCard.classList.remove('active-increase', 'active-decrease');
+                avgValueEl.className = 'text-3xl font-bold text-gray-400 mb-2';
+                maxValueEl.className = 'text-3xl font-bold text-gray-400 mb-2';
+                return;
+            }
+            
+            if (filterType === 'low') {
+                // 低点模式 - 显示涨幅
+                avgLabelEl.textContent = '平均涨幅';
+                maxLabelEl.textContent = '最大涨幅';
+                
+                // 移除之前的样式类
+                avgStatCard.classList.remove('active-decrease');
+                maxStatCard.classList.remove('active-decrease');
+                
+                // 添加新的样式类
+                avgStatCard.classList.add('active-increase');
+                maxStatCard.classList.add('active-increase');
+                
+                // 设置统一的颜色
+                avgValueEl.className = 'text-3xl font-bold text-success mb-2';
+                maxValueEl.className = 'text-3xl font-bold text-success mb-2';
+                
+                const totalIncrease = results.reduce((sum, result) => sum + result.priceIncrease, 0);
+                const avgIncreaseValue = totalIncrease / results.length;
+                const maxIncreaseValue = Math.max(...results.map(result => result.priceIncrease));
+                
+                avgValueEl.textContent = `+${avgIncreaseValue.toFixed(2)}%`;
+                maxValueEl.textContent = `+${maxIncreaseValue.toFixed(2)}%`;
+            } else {
+                // 高点模式 - 显示跌幅
+                avgLabelEl.textContent = '平均跌幅';
+                maxLabelEl.textContent = '最大跌幅';
+                
+                // 移除之前的样式类
+                avgStatCard.classList.remove('active-increase');
+                maxStatCard.classList.remove('active-increase');
+                
+                // 添加新的样式类
+                avgStatCard.classList.add('active-decrease');
+                maxStatCard.classList.add('active-decrease');
+                
+                // 设置统一的颜色
+                avgValueEl.className = 'text-3xl font-bold text-danger mb-2';
+                maxValueEl.className = 'text-3xl font-bold text-danger mb-2';
+                
+                const totalDecrease = results.reduce((sum, result) => sum + result.priceDecrease, 0);
+                const avgDecreaseValue = totalDecrease / results.length;
+                const maxDecreaseValue = Math.max(...results.map(result => result.priceDecrease));
+                
+                avgValueEl.textContent = `-${avgDecreaseValue.toFixed(2)}%`;
+                maxValueEl.textContent = `-${maxDecreaseValue.toFixed(2)}%`;
+            }
+        }
+
+        // 筛选高点降低的币种
+        async function filterFallingHighPoints() {
+            startFilterBtn.disabled = true;
+            cancelFilterBtn.classList.remove('hidden');
+            emptyState.classList.add('hidden');
+            loadingState.classList.remove('hidden');
+            progressContainer.classList.remove('hidden');
+            resultsContainer.innerHTML = '';
+            isFilterCancelled = false;
+
+            const results = [];
+            const cryptoPairs = Object.keys(cryptoInfo);
+            const totalPairs = cryptoPairs.length;
+            let analyzedCount = 0;
+
+            try {
+                for (const pair of cryptoPairs) {
+                    if (isFilterCancelled) {
+                        break;
+                    }
+
+                    analyzedCount++;
+                    const progress = Math.round((analyzedCount / totalPairs) * 100);
+                    progressBar.style.width = `${progress}%`;
+                    progressPercent.textContent = `${progress}%`;
+                    progressText.textContent = `正在分析 ${cryptoInfo[pair].name}...`;
+
+                    try {
+                        const data = await fetchKlinesData(pair);
+                        
+                        if (data && data.length > 0) {
+                            const points = identifyWavePoints(data);
+                            const highPoints = points.filter(p => p.type === 'high');
+                            
+                            if (highPoints.length >= 2) {
+                                const lastHigh = highPoints[highPoints.length - 1];
+                                const prevHigh = highPoints[highPoints.length - 2];
+                                
+                                // 获取最新价格
+                                const latestKline = data[data.length - 1];
+                                const currentPrice = latestKline.close;
+                                  
+                                // 判断条件：高点降低 且 当前价格小于最后一个高点
+                                if (lastHigh.price < prevHigh.price && currentPrice < lastHigh.price) {
+                                    // 高点降低且价格维持在最后一个高点之下
+                                    const priceDecrease = ((prevHigh.price - lastHigh.price) / prevHigh.price * 100);
+                                    const timeDiff = Math.floor((lastHigh.time - prevHigh.time) / (1000 * 60 * 60));
+                                    const currentBelowHigh = ((lastHigh.price - currentPrice) / lastHigh.price * 100);
+                                      
+                                    results.push({
+                                        pair: pair,
+                                        name: cryptoInfo[pair].name,
+                                        lastHighPrice: lastHigh.price,
+                                        prevHighPrice: prevHigh.price,
+                                        priceDecrease: priceDecrease,
+                                        currentPrice: currentPrice,
+                                        currentBelowHigh: currentBelowHigh,
+                                        timeDiff: timeDiff,
+                                        totalPoints: points.length,
+                                        highPointsCount: highPoints.length,
+                                        filterType: 'high'
+                                    });
+                                }
+                            }
+                        }
+                        
+                        // 添加小延迟避免API请求过于频繁
+                        await new Promise(resolve => setTimeout(resolve, 200));
+                        
+                    } catch (error) {
+                        console.error(`分析 ${pair} 时出错:`, error);
+                        continue;
+                    }
+                }
+
+                // 按价格跌幅排序
+                results.sort((a, b) => b.priceDecrease - a.priceDecrease);
+                
+                // 更新统计信息
+                updateStatistics(results, 'high');
+                
+                // 显示结果
+                displayResults(results);
+                
+            } catch (error) {
+                console.error('筛选过程中出错:', error);
+                resultsContainer.innerHTML = '<div class="text-center text-danger py-8">筛选过程中出现错误，请稍后重试。</div>';
+            } finally {
+                startFilterBtn.disabled = false;
+                cancelFilterBtn.classList.add('hidden');
+                loadingState.classList.add('hidden');
+                
+                if (isFilterCancelled) {
+                    progressText.textContent = '筛选已取消';
+                    progressPercent.textContent = '0%';
+                    progressBar.style.width = '0%';
+                }
+            }
+        }
+
+        // 显示筛选结果
+        function displayResults(results) {
+            if (results.length === 0) {
+                const isLowPointMode = document.getElementById('low-point-mode').classList.contains('bg-primary');
+                const message = isLowPointMode 
+                    ? '最近两个波段低点没有呈现抬高趋势'
+                    : '最近两个波段高点没有呈现降低趋势';
+                resultsContainer.innerHTML = `
+                    <div class="text-center py-8">
+                        <i class="fas fa-exclamation-triangle text-gray-500 text-4xl mb-4"></i>
+                        <p class="text-gray-400 text-lg">没有找到符合条件的币种</p>
+                        <p class="text-gray-500 text-sm mt-2">${message}</p>
+                    </div>
+                `;
+                return;
+            }
+
+            let html = '';
+            results.forEach((result, index) => {
+                const rankColor = index === 0 ? 'text-yellow-400' : index === 1 ? 'text-gray-300' : index === 2 ? 'text-orange-400' : 'text-gray-400';
+                const rankIcon = index === 0 ? 'fas fa-crown' : index === 1 ? 'fas fa-medal' : index === 2 ? 'fas fa-award' : 'fas fa-star';
+                
+                html += `
+                    <div class="crypto-card bg-gray-800 rounded-lg p-4 mb-6">
+                        <div class="flex items-center justify-between mb-3">
+                            <div class="flex items-center space-x-3">
+                                <div class="text-2xl ${rankColor}">
+                                    <i class="${rankIcon}"></i>
+                                </div>
+                                <div>
+                                    <h3 class="text-white font-bold text-lg">${result.name}</h3>
+                                    <p class="text-gray-400 text-sm">${result.pair}</p>
+                                </div>
+                            </div>
+                            <div class="text-right">
+                                ${result.filterType === 'low' ? `
+                                <div class="text-success font-bold text-xl">+${result.priceIncrease.toFixed(2)}%</div>
+                                <div class="text-gray-400 text-sm">涨幅</div>` : `
+                                <div class="text-danger font-bold text-xl">-${result.priceDecrease.toFixed(2)}%</div>
+                                <div class="text-gray-400 text-sm">跌幅</div>`}
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm mb-4">
+                            ${result.filterType === 'low' ? `
+                            <div>
+                                <div class="text-gray-400">上一个低点</div>
+                                <div class="text-white font-medium">$${result.prevLowPrice.toFixed(4)}</div>
+                            </div>
+                            <div>
+                                <div class="text-gray-400">最新低点</div>
+                                <div class="text-white font-medium">$${result.lastLowPrice.toFixed(4)}</div>
+                            </div>
+                            <div>
+                                <div class="text-gray-400">当前价格</div>
+                                <div class="text-white font-medium">$${result.currentPrice.toFixed(4)}</div>
+                            </div>
+                            <div>
+                                <div class="text-gray-400">相对低点涨幅</div>
+                                <div class="text-success font-medium">+${result.currentAboveLow.toFixed(2)}%</div>
+                            </div>` : `
+                            <div>
+                                <div class="text-gray-400">上一个高点</div>
+                                <div class="text-white font-medium">$${result.prevHighPrice.toFixed(4)}</div>
+                            </div>
+                            <div>
+                                <div class="text-gray-400">最新高点</div>
+                                <div class="text-white font-medium">$${result.lastHighPrice.toFixed(4)}</div>
+                            </div>
+                            <div>
+                                <div class="text-gray-400">当前价格</div>
+                                <div class="text-white font-medium">$${result.currentPrice.toFixed(4)}</div>
+                            </div>
+                            <div>
+                                <div class="text-gray-400">相对高点跌幅</div>
+                                <div class="text-danger font-medium">-${result.currentBelowHigh.toFixed(2)}%</div>
+                            </div>`}
+                        </div>
+                        
+                        <!-- TradingView跳转按钮 -->
+                        <div class="flex justify-end mt-2">
+                            <a href="https://www.tradingview.com/chart/?symbol=BINANCE:${result.pair}&interval=1H" target="_blank" class="bg-blue-600 hover:bg-blue-700 text-white text-sm py-2 px-4 rounded-lg transition-all duration-200 flex items-center space-x-2">
+                                <i class="fas fa-chart-line"></i>
+                                <span>查看1小时K线 (TradingView)</span>
+                            </a>
+                        </div>
+                    </div>
+                `;
+            });
+
+            resultsContainer.innerHTML = html;
+        }
+
+        // 事件监听器
+        startFilterBtn.addEventListener('click', filterByMode);
+        
+        cancelFilterBtn.addEventListener('click', () => {
+            isFilterCancelled = true;
+            cancelFilterBtn.classList.add('hidden');
+        });
+        
+        // 筛选模式切换
+        document.getElementById('low-point-mode').addEventListener('click', function() {
+            this.classList.add('bg-primary', 'text-white');
+            this.classList.remove('text-gray-300', 'hover:bg-gray-600');
+            document.getElementById('high-point-mode').classList.remove('bg-primary', 'text-white');
+            document.getElementById('high-point-mode').classList.add('text-gray-300', 'hover:bg-gray-600');
+            // 清空结果区域，提示用户开始筛选
+            resultsContainer.innerHTML = '';
+            emptyState.classList.remove('hidden');
+        });
+        
+        document.getElementById('high-point-mode').addEventListener('click', function() {
+            this.classList.add('bg-primary', 'text-white');
+            this.classList.remove('text-gray-300', 'hover:bg-gray-600');
+            document.getElementById('low-point-mode').classList.remove('bg-primary', 'text-white');
+            document.getElementById('low-point-mode').classList.add('text-gray-300', 'hover:bg-gray-600');
+            // 清空结果区域，提示用户开始筛选
+            resultsContainer.innerHTML = '';
+            emptyState.classList.remove('hidden');
+        });
+
+        // 页面加载完成后的初始化
+        document.addEventListener('DOMContentLoaded', () => {
+            console.log('加密货币波段筛选器已加载完成');
+        });
+    </script>
+</body>
+</html>
